@@ -102,6 +102,9 @@ type TelegramConfig struct {
 	BridgeCommunities                    bool                `yaml:"bridge_communities"`
 	InlineButtonFallback                 bool                `yaml:"inline_button_fallback"`
 	DisplaynameTemplate                  string              `yaml:"displayname_template"`
+	PresenceBridging                     bool                `yaml:"presence_bridging"`
+	PresenceRefreshSeconds               int                 `yaml:"presence_refresh_seconds"`
+	PresenceMaxPerSecond                 float64             `yaml:"presence_max_per_second"`
 	displaynameTemplate                  *template.Template  `yaml:"-"`
 }
 
@@ -196,6 +199,9 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "bridge_communities")
 	helper.Copy(up.Bool, "inline_button_fallback")
 	helper.Copy(up.Str, "displayname_template")
+	helper.Copy(up.Bool, "presence_bridging")
+	helper.Copy(up.Int, "presence_refresh_seconds")
+	helper.Copy(up.Int|up.Float, "presence_max_per_second")
 }
 
 func (tc *TelegramConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {
@@ -210,6 +216,7 @@ func (tc *TelegramConnector) GetConfig() (example string, data any, upgrader up.
 			{"sync"},
 			{"takeout"},
 			{"max_member_count"},
+			{"presence_bridging"},
 		},
 		Base: ExampleConfig,
 	}

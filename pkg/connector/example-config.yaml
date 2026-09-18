@@ -133,3 +133,14 @@ inline_button_fallback: false
 # {{ .UserID }} - the internal user ID of the Telegram user
 # {{ .Deleted }} - true if the user has been deleted, false otherwise
 displayname_template: "{{ if .Deleted }}Deleted account {{ .UserID }}{{ else }}{{ .FullName }}{{ end }}"
+
+# Bridge Telegram online status ("last seen") to Matrix presence on ghosts.
+# Only users whose status your account can see are bridged; users who hide
+# their last seen appear as "unavailable".
+presence_bridging: true
+# How often to re-send "online" while Telegram still reports the user online.
+# Must be lower than the homeserver's idle timeout (tuwunel:
+# presence_idle_timeout_s, Synapse: 5 minutes), or ghosts flicker to idle.
+presence_refresh_seconds: 240
+# Global limit of presence requests per second sent to the homeserver.
+presence_max_per_second: 5
