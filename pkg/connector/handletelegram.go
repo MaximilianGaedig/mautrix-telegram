@@ -1005,6 +1005,11 @@ func (tc *TelegramClient) onUpdate(ctx context.Context, e tg.Entities, upd tg.Up
 		return tc.onChat(ctx, e, update)
 	case *tg.UpdatePhoneCall:
 		return tc.onPhoneCall(ctx, e, update)
+	case *tg.UpdateStickerSets, *tg.UpdateNewStickerSet, *tg.UpdateStickerSetsOrder:
+		// Installs, uninstalls and reorders; the sync diffs by set hash, so a full
+		// (debounced) resync is cheap when nothing changed.
+		tc.triggerStickerPackSync()
+		return nil
 	case *tg.UpdateUserStatus:
 		tc.handleUserStatus(update.UserID, update.Status)
 		return nil

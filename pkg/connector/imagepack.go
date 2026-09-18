@@ -459,13 +459,7 @@ func (tc *TelegramClient) fnDownloadEmojiPack(ce *commands.Event) {
 		ce.Reply("Failed to import pack: %v", err)
 		return
 	}
-	if pack.Shortcode == "" && pack.Content.Metadata.BridgedPack != nil {
-		pack.Shortcode = pack.Content.Metadata.BridgedPack.URL
-	}
-	_, err = tc.main.Bridge.Bot.SendState(ce.Ctx, spaceRoom, event.StateImagePack, pack.Shortcode, &event.Content{
-		Parsed: pack.Content,
-		Raw:    pack.Extra,
-	}, time.Now())
+	err = tc.sendImagePackToSpace(ce.Ctx, spaceRoom, pack.Shortcode, pack.Content, pack.Extra)
 	if err != nil {
 		ce.Reply("Failed to send image pack to space: %v", err)
 	} else {

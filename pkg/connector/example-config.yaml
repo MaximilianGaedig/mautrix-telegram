@@ -151,3 +151,8 @@ presence_max_per_second: 5
 presence_online_while_active: true
 # Seconds of Matrix inactivity after which the session goes offline again.
 presence_active_timeout_seconds: 300
+
+# Keep every sticker and custom emoji set installed in your Telegram account imported as
+# an image pack (im.ponies.room_emotes) in your personal filtering space, without running
+# `emoji-pack download`. Installs and uninstalls sync live. Needs personal filtering spaces.
+sticker_pack_sync: true

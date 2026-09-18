@@ -113,6 +113,10 @@ type UserLoginMetadata struct {
 	PinnedDialogs []networkid.PortalID `json:"pinned_dialogs,omitempty"`
 
 	PushEncryptionKey []byte `json:"push_encryption_key,omitempty"`
+
+	// StickerPacks tracks sets imported by the automatic sticker pack sync, keyed by
+	// decimal set ID. Treat as immutable: replace the map instead of mutating it.
+	StickerPacks map[string]SyncedStickerPack `json:"sticker_packs,omitempty"`
 }
 
 func (u *UserLoginMetadata) ResetOnLogout() {

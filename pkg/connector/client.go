@@ -123,6 +123,9 @@ type TelegramClient struct {
 	stickerPacksByName   map[string]*stickerPackCache
 	stickerPacksByID     map[int64]*stickerPackCache
 	stickerPackCacheLock sync.Mutex
+
+	stickerSyncTrigger chan struct{}
+	stickerSyncLock    sync.Mutex
 }
 
 var _ bridgev2.NetworkAPI = (*TelegramClient)(nil)
@@ -179,6 +182,7 @@ func NewTelegramClient(ctx context.Context, tc *TelegramConnector, login *bridge
 
 		prevReactionPoll:   map[networkid.PortalKey]time.Time{},
 		stickerPacksByName: map[string]*stickerPackCache{},
+		stickerSyncTrigger: make(chan struct{}, 1),
 		stickerPacksByID:   map[int64]*stickerPackCache{},
 
 		recentMessageRooms: exsync.NewRingBuffer[networkid.MessageID, networkid.PortalKey](32),
@@ -538,6 +542,7 @@ func (tc *TelegramClient) runInBackground(ctx context.Context) {
 			}()
 		}
 		go tc.pollPresence(ctx)
+		go tc.runStickerPackSyncLoop(ctx)
 		log.Info().Msg("Client running, starting updates")
 		err := tc.updatesManager.Run(ctx, tc.client.API(), tc.telegramUserID, updates.AuthOptions{
 			IsBot: tc.metadata.IsBot,
