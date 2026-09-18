@@ -166,7 +166,7 @@ func (tc *TelegramClient) resolveUsername(ctx context.Context, username string, 
 // - Usernames cannot end with an underscore
 // TODO some usernames are shorter, figure out actual limits
 // (some bots like @pic and @gif have 3 characters, fragment might allow 4 characters)
-var usernameRe = regexp.MustCompile(`^(?:(?:https?://)?t(?:elegram)?\.(?:me|dog)/|tg:/{0,2}resolve\?domain=|@)?([a-zA-Z]\w{3,30}[a-zA-Z\d])$`)
+var usernameRe = regexp.MustCompile(`^(?:(?:https?://)?t(?:elegram)?\.(?:me|dog)/|tg:/{0,2}resolve\?domain=|@)?([a-zA-Z]\w{2,30}[a-zA-Z\d])$`)
 
 func (tc *TelegramClient) ResolveIdentifier(ctx context.Context, identifier string, createChat bool) (*bridgev2.ResolveIdentifierResponse, error) {
 	log := zerolog.Ctx(ctx).With().Str("identifier", identifier).Logger()
