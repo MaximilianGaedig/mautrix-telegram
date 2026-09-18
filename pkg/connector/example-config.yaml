@@ -119,6 +119,12 @@ disable_view_once: false
 video_url_preview_as_file: false
 # Should communities on Telegram be bridged as Matrix spaces?
 bridge_communities: true
+# Should the inline buttons of Telegram messages also be added to the end of the
+# Matrix message body as text? The buttons are always included in the
+# fi.mau.telegram.buttons field of the event content for clients that can render
+# them. Enabling this makes them visible in other clients too: URL buttons are
+# shown as links and callback buttons with the command to press them.
+inline_button_fallback: false
 # Displayname template for Telegram users.
 # {{ .FullName }} - the full name of the Telegram user
 # {{ .FirstName }} - the first name of the Telegram user

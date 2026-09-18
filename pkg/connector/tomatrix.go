@@ -250,6 +250,10 @@ func (tc *TelegramClient) convertToMatrix(
 		cm.Parts[0].Content.BeeperPerMessageProfile = perMessageProfile
 		cm.Parts[0].Content.AddPerMessageProfileFallback()
 	}
+	keyboard := tc.convertReplyMarkup(ctx, msg, tc.main.commandPrefix())
+	// The keyboard is part of the hash so that edits which only change the buttons aren't ignored as no-ops.
+	// Messages without a keyboard hash exactly like they did before buttons were bridged.
+	hasher.Write(keyboard.contentHashInput())
 	cm.Parts[0].DBMetadata = &MessageMetadata{
 		ContentHash: hasher.Sum(nil),
 		ContentURI:  contentURI,
@@ -294,6 +298,9 @@ func (tc *TelegramClient) convertToMatrix(
 	if externalURL := getMessageLink(msg); externalURL != "" {
 		cm.Parts[0].Extra["external_url"] = externalURL
 	}
+	// The keyboard goes on the first part, which is the text part (or the merged media and caption part). That's
+	// also the only part that is updated when the message is edited, so keyboard changes reach Matrix as edits.
+	applyInlineKeyboard(cm.Parts[0], keyboard, tc.main.Config.InlineButtonFallback)
 	if len(cm.Parts) > 1 {
 		log.Warn().Int("part_count", len(cm.Parts)).Msg("Message has multiple parts")
 		for i, part := range cm.Parts[1:] {
