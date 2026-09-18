@@ -12,6 +12,7 @@ import (
 type sentReq struct {
 	key string
 	p   event.Presence
+	msg string
 }
 
 type harness struct {
@@ -23,11 +24,11 @@ type harness struct {
 
 func newHarness(cfg Config) *harness {
 	h := &harness{now: time.Unix(1_700_000_000, 0)}
-	h.m = NewManager(cfg, func(ctx context.Context, key string, p event.Presence) error {
+	h.m = NewManager(cfg, func(ctx context.Context, key string, p event.Presence, msg string) error {
 		if h.fail {
 			return fmt.Errorf("boom")
 		}
-		h.sent = append(h.sent, sentReq{key, p})
+		h.sent = append(h.sent, sentReq{key: key, p: p, msg: msg})
 		return nil
 	})
 	h.m.now = func() time.Time { return h.now }
@@ -181,5 +182,36 @@ func TestTokenBucket(t *testing.T) {
 	}
 	if !tb.Allow(now.Add(time.Hour)) || !tb.Allow(now.Add(time.Hour)) || tb.Allow(now.Add(time.Hour)) {
 		t.Fatal("refill must cap at burst")
+	}
+}
+
+func TestFirstSightWithInfoIsSent(t *testing.T) {
+	h := newHarness(Config{})
+	h.m.Update("hidden", State{Presence: event.PresenceUnavailable, StatusMsg: "last seen recently"})
+	h.m.Update("exact", State{Presence: event.PresenceOffline, StatusMsg: "last seen 2026-09-18T19:40:00Z"})
+	h.m.Update("bare", State{Presence: event.PresenceOffline})
+	h.advance(time.Minute)
+	got := map[string]sentReq{}
+	for _, r := range h.take() {
+		got[r.key] = r
+	}
+	if len(got) != 2 || got["hidden"].msg != "last seen recently" || got["exact"].p != event.PresenceOffline {
+		t.Fatalf("unexpected sends: %+v", got)
+	}
+}
+
+func TestStatusMsgChangeIsSent(t *testing.T) {
+	h := newHarness(Config{})
+	h.m.Update("u", State{Presence: event.PresenceOffline, StatusMsg: "last seen 2026-09-18T19:00:00Z"})
+	h.advance(time.Minute)
+	h.take()
+	h.m.Update("u", State{Presence: event.PresenceOffline, StatusMsg: "last seen 2026-09-18T19:40:00Z"})
+	h.advance(time.Minute)
+	if s := h.take(); len(s) != 1 || s[0].msg != "last seen 2026-09-18T19:40:00Z" {
+		t.Fatalf("expected the new last-seen to be sent once, got %+v", s)
+	}
+	h.advance(time.Minute)
+	if s := h.take(); len(s) != 0 {
+		t.Fatalf("expected no resend of an unchanged status, got %+v", s)
 	}
 }

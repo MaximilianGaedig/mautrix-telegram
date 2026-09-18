@@ -27,11 +27,16 @@ import (
 	"go.mau.fi/mautrix-telegram/pkg/presence"
 )
 
+// LastSeenPrefix starts every status_msg the bridge sets, so clients can
+// recognise and reformat it (e.g. "last seen 5 minutes ago").
+const LastSeenPrefix = "last seen "
+
 // mapTelegramStatus converts a Telegram user status to Matrix presence.
 //
-// Matrix's PUT /presence can't carry last_active_ago, so exact last-seen
-// timestamps (UserStatusOffline.WasOnline) are not bridged; the homeserver
-// derives last_active_ago from when the ghost was last set online instead.
+// Matrix's PUT /presence can't carry last_active_ago, so the exact last-seen
+// time (UserStatusOffline.WasOnline) goes into status_msg as
+// "last seen <RFC3339 UTC>". Hidden last-seen becomes "last seen recently",
+// "last seen within a week" or "last seen within a month", like Telegram shows.
 func mapTelegramStatus(status tg.UserStatusClass, now time.Time) (presence.State, bool) {
 	switch s := status.(type) {
 	case *tg.UserStatusOnline:
@@ -44,10 +49,18 @@ func mapTelegramStatus(status tg.UserStatusClass, now time.Time) (presence.State
 		}
 		return presence.State{Presence: event.PresenceOnline, Until: until}, true
 	case *tg.UserStatusOffline:
-		return presence.State{Presence: event.PresenceOffline}, true
-	case *tg.UserStatusRecently, *tg.UserStatusLastWeek, *tg.UserStatusLastMonth:
-		// Last seen is hidden by the user's privacy settings.
-		return presence.State{Presence: event.PresenceUnavailable}, true
+		st := presence.State{Presence: event.PresenceOffline}
+		if s.WasOnline > 0 {
+			st.StatusMsg = LastSeenPrefix + time.Unix(int64(s.WasOnline), 0).UTC().Format(time.RFC3339)
+		}
+		return st, true
+	// Last seen is hidden by the user's privacy settings.
+	case *tg.UserStatusRecently:
+		return presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "recently"}, true
+	case *tg.UserStatusLastWeek:
+		return presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "within a week"}, true
+	case *tg.UserStatusLastMonth:
+		return presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "within a month"}, true
 	case *tg.UserStatusEmpty:
 		return presence.State{Presence: event.PresenceOffline}, true
 	default:

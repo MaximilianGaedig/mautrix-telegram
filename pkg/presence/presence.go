@@ -26,11 +26,16 @@ import (
 )
 
 // SendFunc sets the presence of the ghost belonging to the given remote user.
-type SendFunc func(ctx context.Context, remoteUserID string, presence event.Presence) error
+// statusMsg is the free-text status message (e.g. "last seen <RFC3339 time>"),
+// the only other field Matrix lets clients set.
+type SendFunc func(ctx context.Context, remoteUserID string, presence event.Presence, statusMsg string) error
 
 // State is a remote user's status as reported by the remote network.
 type State struct {
 	Presence event.Presence
+	// StatusMsg is sent as the Matrix status_msg. Bridges use it to carry the
+	// exact last-seen time, which Matrix presence has no field for.
+	StatusMsg string
 	// Until is when an online state stops being valid unless the remote
 	// confirms it again. Zero means "until the remote says otherwise".
 	Until time.Time
@@ -74,11 +79,13 @@ func (c *Config) setDefaults() {
 }
 
 type entry struct {
-	desired event.Presence
-	until   time.Time
-	sent    event.Presence
-	sentAt  time.Time
-	touched time.Time
+	desired    event.Presence
+	desiredMsg string
+	sentMsg    string
+	until      time.Time
+	sent       event.Presence
+	sentAt     time.Time
+	touched    time.Time
 }
 
 // Manager tracks desired presence per remote user and sends it to Matrix.
@@ -119,15 +126,17 @@ func (m *Manager) Update(remoteUserID string, st State) {
 		}
 		e = &entry{}
 		m.entries[remoteUserID] = e
-		if st.Presence != event.PresenceOnline {
-			// Don't flood the homeserver with "offline" for every user seen
-			// during startup sync: the homeserver decays stale online states
-			// on its own, so only transitions and online states are sent.
+		if st.Presence == event.PresenceOffline && st.StatusMsg == "" {
+			// A bare "offline" says nothing the homeserver doesn't already
+			// assume for a ghost, so don't flood it with those at startup.
+			// Anything carrying information (online, hidden last seen, an
+			// exact last-seen time) is sent on first sight.
 			e.sent = st.Presence
 			e.sentAt = now
 		}
 	}
 	e.desired = st.Presence
+	e.desiredMsg = st.StatusMsg
 	e.until = st.Until
 	e.touched = now
 }
@@ -152,6 +161,7 @@ func (m *Manager) evictOne() bool {
 type pending struct {
 	key      string
 	presence event.Presence
+	msg      string
 	sentAt   time.Time
 }
 
@@ -167,15 +177,15 @@ func (m *Manager) Tick(ctx context.Context) {
 		}
 		sinceSent := now.Sub(e.sentAt)
 		switch {
-		case e.desired != e.sent && sinceSent >= m.cfg.Debounce:
+		case (e.desired != e.sent || e.desiredMsg != e.sentMsg) && sinceSent >= m.cfg.Debounce:
 		case e.desired == event.PresenceOnline && e.sent == event.PresenceOnline && sinceSent >= m.cfg.Refresh:
 		default:
-			if e.desired != event.PresenceOnline && e.sent == e.desired && now.Sub(e.touched) > time.Hour {
+			if e.desired != event.PresenceOnline && e.sent == e.desired && e.sentMsg == e.desiredMsg && now.Sub(e.touched) > time.Hour {
 				delete(m.entries, k)
 			}
 			continue
 		}
-		due = append(due, pending{key: k, presence: e.desired, sentAt: e.sentAt})
+		due = append(due, pending{key: k, presence: e.desired, msg: e.desiredMsg, sentAt: e.sentAt})
 	}
 	m.lock.Unlock()
 	if len(due) == 0 {
@@ -195,13 +205,14 @@ func (m *Manager) Tick(ctx context.Context) {
 			log.Debug().Int("deferred", len(due)-i).Msg("Presence rate limit reached, deferring")
 			return
 		}
-		err := m.send(ctx, p.key, p.presence)
+		err := m.send(ctx, p.key, p.presence, p.msg)
 		m.lock.Lock()
 		if e, ok := m.entries[p.key]; ok {
 			// On error, still bump sentAt so the debounce acts as a backoff.
 			e.sentAt = m.now()
 			if err == nil {
 				e.sent = p.presence
+				e.sentMsg = p.msg
 			}
 		}
 		m.lock.Unlock()
