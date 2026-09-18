@@ -63,6 +63,8 @@ type PortalMetadata struct {
 	LastSync          jsontime.Unix `json:"last_sync,omitempty"`
 	FullSynced        bool          `json:"full_synced,omitempty"`
 	ParticipantsCount int           `json:"member_count,omitempty"`
+	// BotCommandsHash identifies the last fi.mau.telegram.bot_commands state sent.
+	BotCommandsHash string `json:"bot_commands_hash,omitempty"`
 
 	SponsoredMessagePollTS    jsontime.Unix       `json:"sponsored_message_poll_ts,omitempty"`
 	SponsoredMessageEventID   id.EventID          `json:"sponsored_message_event_id,omitempty"`

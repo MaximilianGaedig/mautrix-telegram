@@ -407,6 +407,7 @@ func (tc *TelegramClient) wrapFullChatInfo(portalID networkid.PortalID, fullChat
 
 	switch typedFullChat := fullChat.FullChat.(type) {
 	case *tg.ChatFull:
+		info.ExtraUpdates = bridgev2.MergeExtraUpdaters(info.ExtraUpdates, tc.groupBotCommandsUpdater(typedFullChat.BotInfo, fullChat.Users))
 		participants, _ := typedFullChat.GetParticipants().(*tg.ChatParticipants)
 		memberSyncLimit := tc.main.Config.MemberList.NormalizedMaxInitialSync()
 		info.Members.IsFull = true
@@ -432,6 +433,7 @@ func (tc *TelegramClient) wrapFullChatInfo(portalID networkid.PortalID, fullChat
 			}
 		}
 	case *tg.ChannelFull:
+		info.ExtraUpdates = bridgev2.MergeExtraUpdaters(info.ExtraUpdates, tc.groupBotCommandsUpdater(typedFullChat.BotInfo, fullChat.Users))
 		mfm.ParticipantsHidden = !typedFullChat.CanViewParticipants || typedFullChat.ParticipantsHidden
 	case *tg.CommunityFull:
 	}
