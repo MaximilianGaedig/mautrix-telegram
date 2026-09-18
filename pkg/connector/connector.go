@@ -24,6 +24,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/commands"
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/store"
+	"go.mau.fi/mautrix-telegram/pkg/presence"
 )
 
 type TelegramConnector struct {
@@ -33,6 +34,8 @@ type TelegramConnector struct {
 
 	useDirectMedia bool
 	maxFileSize    int64
+
+	presence *presence.Manager
 }
 
 var _ bridgev2.NetworkConnector = (*TelegramConnector)(nil)
@@ -45,7 +48,11 @@ func (tc *TelegramConnector) Init(bridge *bridgev2.Bridge) {
 }
 
 func (tc *TelegramConnector) Start(ctx context.Context) error {
-	return tc.Store.Upgrade(ctx)
+	if err := tc.Store.Upgrade(ctx); err != nil {
+		return err
+	}
+	tc.startPresence(ctx)
+	return nil
 }
 
 func (tc *TelegramConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) (err error) {
