@@ -107,7 +107,7 @@ func (tc *TelegramClient) getDMChatInfo(ctx context.Context, userID int64) (*bri
 			PowerLevels: tc.getDMPowerLevels(ghost),
 		},
 		CanBackfill:  !tc.metadata.IsBot,
-		ExtraUpdates: updatePortalLastSyncAt,
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updatePortalLastSyncAt, tc.botCommandsUpdater(userID)),
 	}
 	chatInfo.Members.MemberMap.Add(bridgev2.ChatMember{EventSender: tc.mySender()})
 	chatInfo.Members.MemberMap.Add(bridgev2.ChatMember{EventSender: tc.senderForUserID(userID)})
