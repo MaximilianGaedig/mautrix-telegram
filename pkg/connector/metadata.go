@@ -94,6 +94,9 @@ func (pm *PortalMetadata) SetIsForumGeneral(isForumGeneral bool) (changed bool) 
 type MessageMetadata struct {
 	ContentHash []byte              `json:"content_hash,omitempty"`
 	ContentURI  id.ContentURIString `json:"content_uri,omitempty"`
+	// GroupedID is the Telegram album (grouped_id) the message belongs to.
+	// It's used to compute the fi.mau.album index of later album items.
+	GroupedID int64 `json:"grouped_id,omitempty"`
 }
 
 type UserLoginMetadata struct {

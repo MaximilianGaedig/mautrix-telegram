@@ -244,6 +244,12 @@ func (tc *TelegramClient) FetchMessages(ctx context.Context, fetchParams bridgev
 
 	portal := fetchParams.Portal
 
+	if !fetchParams.Forward && len(messages) >= fetchParams.Count {
+		// Don't split albums across backwards backfill batches, see trimTrailingAlbum.
+		messages = trimTrailingAlbum(messages)
+	}
+	ctx = withAlbumBatch(ctx, messages)
+
 	// If the first message is the last read message, mark the chat as read
 	// during backfill.
 	markRead := fetchParams.Forward &&

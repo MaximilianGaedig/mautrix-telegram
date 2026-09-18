@@ -253,7 +253,9 @@ func (tc *TelegramClient) convertToMatrix(
 	cm.Parts[0].DBMetadata = &MessageMetadata{
 		ContentHash: hasher.Sum(nil),
 		ContentURI:  contentURI,
+		GroupedID:   msg.GroupedID,
 	}
+	tagAlbumParts(cm.Parts, tc.getAlbumInfo(ctx, portal, msg))
 
 	if fwd, isForwarded := msg.GetFwdFrom(); isForwarded {
 		err = tc.addForwardHeader(ctx, cm.Parts[0], fwd)
