@@ -18,6 +18,8 @@ package connector
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"time"
 
 	"maunium.net/go/mautrix/event"
@@ -84,7 +86,43 @@ func (tc *TelegramClient) handleUserStatus(userID int64, status tg.UserStatusCla
 	if tc.main.presence == nil || userID == 0 || userID == tc.telegramUserID || status == nil {
 		return
 	}
-	if st, ok := mapTelegramStatus(status, time.Now()); ok {
-		tc.main.presence.Update(string(ids.MakeUserID(userID)), st)
+	now := time.Now()
+	st, ok := mapTelegramStatus(status, now)
+	if !ok {
+		return
 	}
+	st = tc.main.lastOnline.apply(userID, st, now)
+	tc.main.presence.Update(string(ids.MakeUserID(userID)), st)
+}
+
+// lastOnlineTracker remembers when each user was last observed online. When
+// Telegram later only reports a vague status ("recently" etc., because the
+// exact last-seen time is hidden from us), the last observed online time is
+// used instead, so clients can still show "last seen 21:40". It's accurate to
+// roughly the status poll interval and is kept in memory only.
+type lastOnlineTracker struct {
+	lock sync.Mutex
+	seen map[int64]time.Time
+}
+
+func (t *lastOnlineTracker) apply(userID int64, st presence.State, now time.Time) presence.State {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if t.seen == nil {
+		t.seen = make(map[int64]time.Time)
+	}
+	switch {
+	case st.Presence == event.PresenceOnline:
+		t.seen[userID] = now
+	case st.Presence == event.PresenceUnavailable && strings.HasPrefix(st.StatusMsg, LastSeenPrefix) && !isExactLastSeen(st.StatusMsg):
+		if last, ok := t.seen[userID]; ok {
+			st.StatusMsg = LastSeenPrefix + last.UTC().Truncate(time.Second).Format(time.RFC3339)
+		}
+	}
+	return st
+}
+
+func isExactLastSeen(msg string) bool {
+	_, err := time.Parse(time.RFC3339, strings.TrimPrefix(msg, LastSeenPrefix))
+	return err == nil
 }

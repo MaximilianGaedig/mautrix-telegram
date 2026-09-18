@@ -7,6 +7,7 @@ import (
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-telegram/pkg/gotd/tg"
+	"go.mau.fi/mautrix-telegram/pkg/presence"
 )
 
 func TestMapTelegramStatus(t *testing.T) {
@@ -38,5 +39,25 @@ func TestMapTelegramStatus(t *testing.T) {
 				t.Fatalf("got (%+v, %v), want (%s until %v, %v)", st, ok, c.want, c.until, c.mapped)
 			}
 		})
+	}
+}
+
+func TestLastOnlineTracker(t *testing.T) {
+	var tr lastOnlineTracker
+	t0 := time.Date(2026, 9, 18, 19, 40, 0, 0, time.UTC)
+	recently := presence.State{Presence: event.PresenceUnavailable, StatusMsg: "last seen recently"}
+	if got := tr.apply(1, recently, t0); got.StatusMsg != "last seen recently" {
+		t.Fatalf("no observation yet, got %q", got.StatusMsg)
+	}
+	tr.apply(1, presence.State{Presence: event.PresenceOnline}, t0)
+	if got := tr.apply(1, recently, t0.Add(10*time.Minute)); got.StatusMsg != "last seen 2026-09-18T19:40:00Z" {
+		t.Fatalf("expected last observed online time, got %q", got.StatusMsg)
+	}
+	exact := presence.State{Presence: event.PresenceOffline, StatusMsg: "last seen 2026-09-18T19:45:00Z"}
+	if got := tr.apply(1, exact, t0.Add(20*time.Minute)); got.StatusMsg != exact.StatusMsg {
+		t.Fatalf("exact time from Telegram must win, got %q", got.StatusMsg)
+	}
+	if got := tr.apply(2, recently, t0); got.StatusMsg != "last seen recently" {
+		t.Fatalf("other users unaffected, got %q", got.StatusMsg)
 	}
 }
