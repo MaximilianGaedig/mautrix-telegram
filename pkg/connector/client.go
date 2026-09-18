@@ -85,6 +85,7 @@ type TelegramClient struct {
 	clientDone        *exsync.Event
 	clientInitialized *exsync.Event
 	mu                sync.Mutex
+	activity          onlineWhileActive
 
 	appConfigLock sync.Mutex
 	appConfig     map[string]any

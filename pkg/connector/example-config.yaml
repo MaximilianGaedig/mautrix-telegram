@@ -144,3 +144,10 @@ presence_bridging: true
 presence_refresh_seconds: 240
 # Global limit of presence requests per second sent to the homeserver.
 presence_max_per_second: 5
+# Mark your Telegram session online while you're active on Matrix (sending,
+# reading, typing, reacting), like an open Telegram app. Telegram then pushes
+# contacts' status changes instantly instead of the bridge polling for them.
+# You appear online on Telegram during that time.
+presence_online_while_active: true
+# Seconds of Matrix inactivity after which the session goes offline again.
+presence_active_timeout_seconds: 300

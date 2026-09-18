@@ -105,6 +105,8 @@ type TelegramConfig struct {
 	PresenceBridging                     bool                `yaml:"presence_bridging"`
 	PresenceRefreshSeconds               int                 `yaml:"presence_refresh_seconds"`
 	PresenceMaxPerSecond                 float64             `yaml:"presence_max_per_second"`
+	PresenceOnlineWhileActive            bool                `yaml:"presence_online_while_active"`
+	PresenceActiveTimeoutSeconds         int                 `yaml:"presence_active_timeout_seconds"`
 	displaynameTemplate                  *template.Template  `yaml:"-"`
 }
 
@@ -202,6 +204,8 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "presence_bridging")
 	helper.Copy(up.Int, "presence_refresh_seconds")
 	helper.Copy(up.Int|up.Float, "presence_max_per_second")
+	helper.Copy(up.Bool, "presence_online_while_active")
+	helper.Copy(up.Int, "presence_active_timeout_seconds")
 }
 
 func (tc *TelegramConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {

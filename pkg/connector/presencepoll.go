@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	presencePollInterval = time.Minute
+	presencePollInterval = 15 * time.Second
 	// DM partners that aren't contacts are fetched with users.getUsers, which
 	// accepts at most this many IDs per call.
 	presencePollUsersBatch = 100

@@ -457,6 +457,7 @@ func (tc *TelegramClient) getMaxMessageLength(ctx context.Context, isMedia bool)
 }
 
 func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (resp *bridgev2.MatrixMessageResponse, err error) {
+	tc.markActive(ctx)
 	if msg.Portal.RoomType == database.RoomTypeSpace {
 		return nil, fmt.Errorf("can't send messages to space portals")
 	}
@@ -863,6 +864,7 @@ func (tc *TelegramClient) appendEmojiID(reactionList []tg.ReactionClass, emojiID
 }
 
 func (tc *TelegramClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (reaction *database.Reaction, err error) {
+	tc.markActive(ctx)
 	peer, _, err := tc.inputPeerForPortalID(ctx, msg.Portal.ID)
 	if err != nil {
 		return nil, err
@@ -941,6 +943,7 @@ func (tc *TelegramClient) HandleMatrixReactionRemove(ctx context.Context, msg *b
 }
 
 func (tc *TelegramClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
+	tc.markActive(ctx)
 	if msg.Portal.RoomType == database.RoomTypeSpace {
 		return nil
 	}
@@ -1083,6 +1086,7 @@ func (tc *TelegramClient) HandleMatrixReadReceipt(ctx context.Context, msg *brid
 }
 
 func (tc *TelegramClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.MatrixTyping) error {
+	tc.markActive(ctx)
 	if msg.Portal.RoomType == database.RoomTypeSpace {
 		return nil
 	}

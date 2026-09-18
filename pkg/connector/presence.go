@@ -77,6 +77,8 @@ func (tc *TelegramConnector) startPresence(ctx context.Context) {
 	tc.presence = presence.NewManager(presence.Config{
 		Refresh:       time.Duration(tc.Config.PresenceRefreshSeconds) * time.Second,
 		RatePerSecond: tc.Config.PresenceMaxPerSecond,
+		// Telegram status changes are already coarse; forward them quickly.
+		Debounce: 2 * time.Second,
 	}, presence.GhostSender(tc.Bridge))
 	log := tc.Bridge.Log.With().Str("component", "presence").Logger()
 	go tc.presence.Run(log.WithContext(context.WithoutCancel(ctx)))
