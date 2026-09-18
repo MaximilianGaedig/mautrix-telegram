@@ -20,7 +20,7 @@
     * [x] Custom emojis
     * [ ] Polls
     * [ ] Games
-    * [ ] Buttons
+    * [x] Buttons (callback, URL, reply-keyboard, and more; press via the `click` command)
   * [x] Message deletions
   * [x] Message reactions
   * [x] Message edits
