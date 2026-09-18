@@ -208,6 +208,9 @@ func (m *Manager) Tick(ctx context.Context) {
 		if err != nil {
 			log.Warn().Err(err).Str("remote_user_id", p.key).Str("presence", string(p.presence)).
 				Msg("Failed to bridge presence")
+		} else {
+			log.Debug().Str("remote_user_id", p.key).Str("presence", string(p.presence)).
+				Msg("Bridged presence")
 		}
 	}
 }

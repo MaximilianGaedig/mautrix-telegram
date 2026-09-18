@@ -536,6 +536,7 @@ func (tc *TelegramClient) runInBackground(ctx context.Context) {
 				}
 			}()
 		}
+		go tc.pollPresence(ctx)
 		log.Info().Msg("Client running, starting updates")
 		err := tc.updatesManager.Run(ctx, tc.client.API(), tc.telegramUserID, updates.AuthOptions{
 			IsBot: tc.metadata.IsBot,
