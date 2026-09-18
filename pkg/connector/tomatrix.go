@@ -203,7 +203,7 @@ func (tc *TelegramClient) convertToMatrix(
 				log.Err(err).Msg("Failed to convert webpage to link preview")
 			} else if preview != nil {
 				hasher.Write([]byte(preview.MatchedURL))
-				content.BeeperLinkPreviews = append(content.BeeperLinkPreviews, preview)
+				content.BeeperLinkPreviews = dedupeLinkPreviews(append(content.BeeperLinkPreviews, preview))
 			}
 		}
 
@@ -489,6 +489,14 @@ func (tc *TelegramClient) webpageToBeeperLinkPreview(ctx context.Context, portal
 			CanonicalURL: webpage.URL,
 			Description:  webpage.Description,
 		},
+	}
+
+	if set := stickerSetFromWebPage(webpage); set != nil {
+		if err = tc.fillStickerSetPreview(ctx, portal, intent, preview, set); err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Str("url", webpage.URL).Msg("Failed to render sticker set preview")
+		} else {
+			return preview, nil
+		}
 	}
 
 	if photo, ok := webpage.Photo.(*tg.Photo); ok && (!tc.main.Config.VideoURLPreviewAsFile || unwrapWebPage(msgMedia) == nil) {
