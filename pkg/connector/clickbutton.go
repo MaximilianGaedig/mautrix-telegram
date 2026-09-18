@@ -464,10 +464,11 @@ func fnClick(ce *commands.Event) {
 		return
 	}
 	log.Debug().Bool("has_text", result.Text != "").Msg("Pressed button")
-	// The bot's answer is untrusted text, so send it without any formatting
+	// The press worked: remove the "click" command message so the chat only shows the bot's
+	// (edited) message, like a button press in a Telegram client.
+	ce.Redact()
+	// The bot's answer (a Telegram "toast") is untrusted text, so send it without any formatting
 	if result.Text != "" {
 		ce.ReplyAdvanced(result.Text, false, false)
-	} else if ce.React("✅️") == "" {
-		ce.ReplyAdvanced("Button pressed.", false, false)
 	}
 }
