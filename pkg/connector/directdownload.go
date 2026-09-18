@@ -33,30 +33,29 @@ import (
 
 var _ bridgev2.DirectMediableNetwork = (*TelegramConnector)(nil)
 
-func (tc *TelegramClient) refetchMedia(ctx context.Context, peerType ids.PeerType, peerID int64, msgID int) (tg.MessageMediaClass, error) {
-	var messages tg.ModifiedMessagesMessages
-	var err error
+// getMessagesByID fetches a single message from Telegram by its ID. Channels and supergroups have their own
+// message ID space and need a different method than users and basic groups, which share one.
+func (tc *TelegramClient) getMessagesByID(ctx context.Context, peerType ids.PeerType, peerID int64, msgID int) (tg.ModifiedMessagesMessages, error) {
 	switch peerType {
 	case ids.PeerTypeUser, ids.PeerTypeChat:
-		messages, err = APICallWithUpdates(ctx, tc, func() (tg.ModifiedMessagesMessages, error) {
+		return APICallWithUpdates(ctx, tc, func() (tg.ModifiedMessagesMessages, error) {
 			m, err := tc.client.API().MessagesGetMessages(ctx, []tg.InputMessageClass{
 				&tg.InputMessageID{ID: msgID},
 			})
 			if err != nil {
 				return nil, err
 			} else if messages, ok := m.(tg.ModifiedMessagesMessages); !ok {
-				return nil, fmt.Errorf("unsupported messages type %T", messages)
+				return nil, fmt.Errorf("unsupported messages type %T", m)
 			} else {
 				return messages, nil
 			}
 		})
 	case ids.PeerTypeChannel:
-		var accessHash int64
-		accessHash, err = tc.ScopedStore.GetAccessHash(ctx, ids.PeerTypeChannel, peerID)
+		accessHash, err := tc.ScopedStore.GetAccessHash(ctx, ids.PeerTypeChannel, peerID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get channel access hash: %w", err)
 		}
-		messages, err = APICallWithUpdates(ctx, tc, func() (tg.ModifiedMessagesMessages, error) {
+		return APICallWithUpdates(ctx, tc, func() (tg.ModifiedMessagesMessages, error) {
 			m, err := tc.client.API().ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
 				Channel: &tg.InputChannel{ChannelID: peerID, AccessHash: accessHash},
 				ID: []tg.InputMessageClass{
@@ -66,7 +65,7 @@ func (tc *TelegramClient) refetchMedia(ctx context.Context, peerType ids.PeerTyp
 			if err != nil {
 				return nil, err
 			} else if messages, ok := m.(tg.ModifiedMessagesMessages); !ok {
-				return nil, fmt.Errorf("unsupported messages type %T", messages)
+				return nil, fmt.Errorf("unsupported messages type %T", m)
 			} else {
 				return messages, nil
 			}
@@ -74,6 +73,10 @@ func (tc *TelegramClient) refetchMedia(ctx context.Context, peerType ids.PeerTyp
 	default:
 		return nil, fmt.Errorf("unknown peer type %s", peerType)
 	}
+}
+
+func (tc *TelegramClient) refetchMedia(ctx context.Context, peerType ids.PeerType, peerID int64, msgID int) (tg.MessageMediaClass, error) {
+	messages, err := tc.getMessagesByID(ctx, peerType, peerID, msgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message %d/%d for media info: %w", peerID, msgID, err)
 	}
