@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -60,4 +61,45 @@ func TestLastOnlineTracker(t *testing.T) {
 	if got := tr.apply(2, recently, t0); got.StatusMsg != "last seen recently" {
 		t.Fatalf("other users unaffected, got %q", got.StatusMsg)
 	}
+}
+
+func TestLastOnlineSurvivesRestart(t *testing.T) {
+	now := time.Date(2026, 9, 19, 10, 0, 0, 0, time.UTC)
+	saved := map[int64]time.Time{}
+	var mu sync.Mutex
+	persist := func(id int64, at time.Time) {
+		mu.Lock()
+		saved[id] = at
+		mu.Unlock()
+	}
+	recently := presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "recently"}
+	online := presence.State{Presence: event.PresenceOnline}
+
+	before := &lastOnlineTracker{persist: persist}
+	before.apply(42, online, now)
+	// A refresh within the minute isn't written again.
+	before.apply(42, online, now.Add(30*time.Second))
+	waitFor(t, func() bool { mu.Lock(); defer mu.Unlock(); return saved[42].Equal(now) })
+
+	// After a restart the memory is empty; the saved time dates "recently".
+	after := &lastOnlineTracker{load: func(id int64) time.Time { mu.Lock(); defer mu.Unlock(); return saved[id] }}
+	got := after.apply(42, recently, now.Add(2*time.Hour))
+	if want := LastSeenPrefix + "2026-09-19T10:00:00Z"; got.StatusMsg != want {
+		t.Fatalf("status %q, want %q", got.StatusMsg, want)
+	}
+	// Without a saved time it stays vague.
+	if got = after.apply(7, recently, now); got.StatusMsg != LastSeenPrefix+"recently" {
+		t.Fatalf("unknown user got %q", got.StatusMsg)
+	}
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("condition not met")
 }

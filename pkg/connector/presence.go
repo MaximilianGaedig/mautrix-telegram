@@ -81,7 +81,32 @@ func (tc *TelegramConnector) startPresence(ctx context.Context) {
 		Debounce: 2 * time.Second,
 	}, presence.GhostSender(tc.Bridge))
 	log := tc.Bridge.Log.With().Str("component", "presence").Logger()
-	go tc.presence.Run(log.WithContext(context.WithoutCancel(ctx)))
+	bg := log.WithContext(context.WithoutCancel(ctx))
+	tc.lastOnline.persist = func(userID int64, at time.Time) {
+		ghost, err := tc.Bridge.GetGhostByID(bg, ids.MakeUserID(userID))
+		if err != nil || ghost == nil {
+			return
+		}
+		meta, ok := ghost.Metadata.(*GhostMetadata)
+		if !ok || meta.LastOnline >= at.Unix() {
+			return
+		}
+		meta.LastOnline = at.Unix()
+		if err = tc.Bridge.DB.Ghost.Update(bg, ghost.Ghost); err != nil {
+			log.Debug().Err(err).Int64("user_id", userID).Msg("Failed to save last online time")
+		}
+	}
+	tc.lastOnline.load = func(userID int64) time.Time {
+		ghost, err := tc.Bridge.GetGhostByID(bg, ids.MakeUserID(userID))
+		if err != nil || ghost == nil {
+			return time.Time{}
+		}
+		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LastOnline > 0 {
+			return time.Unix(meta.LastOnline, 0)
+		}
+		return time.Time{}
+	}
+	go tc.presence.Run(bg)
 }
 
 func (tc *TelegramClient) handleUserStatus(userID int64, status tg.UserStatusClass) {
@@ -97,26 +122,57 @@ func (tc *TelegramClient) handleUserStatus(userID int64, status tg.UserStatusCla
 	tc.main.presence.Update(string(ids.MakeUserID(userID)), st)
 }
 
-// lastOnlineTracker remembers when each user was last observed online. When
-// Telegram later only reports a vague status ("recently" etc., because the
-// exact last-seen time is hidden from us), the last observed online time is
-// used instead, so clients can still show "last seen 21:40". It's accurate to
-// roughly the status poll interval and is kept in memory only.
+// lastOnlineTracker remembers when Telegram last said each user was online. When Telegram later
+// only reports a vague status ("recently" etc., because the exact last-seen time is hidden from us),
+// that time is used instead, so clients can still show "last seen 21:40". It's accurate to roughly
+// the status poll interval, and saved in the ghost's metadata (at most once a minute per user) so it
+// survives restarts.
 type lastOnlineTracker struct {
-	lock sync.Mutex
-	seen map[int64]time.Time
+	lock      sync.Mutex
+	seen      map[int64]time.Time
+	persisted map[int64]time.Time
+	loaded    map[int64]bool
+
+	// persist saves a user's last online time; load reads it back. Both may be nil (tests).
+	persist func(userID int64, at time.Time)
+	load    func(userID int64) time.Time
 }
 
+// lastOnlinePersistEvery limits how often one user's last online time is written.
+const lastOnlinePersistEvery = time.Minute
+
 func (t *lastOnlineTracker) apply(userID int64, st presence.State, now time.Time) presence.State {
+	vague := st.Presence == event.PresenceUnavailable && strings.HasPrefix(st.StatusMsg, LastSeenPrefix) &&
+		!isExactLastSeen(st.StatusMsg)
+	t.lock.Lock()
+	if t.seen == nil {
+		t.seen, t.persisted, t.loaded = map[int64]time.Time{}, map[int64]time.Time{}, map[int64]bool{}
+	}
+	_, known := t.seen[userID]
+	needLoad := vague && !known && !t.loaded[userID] && t.load != nil
+	t.lock.Unlock()
+	var loaded time.Time
+	if needLoad {
+		loaded = t.load(userID)
+	}
+
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	if t.seen == nil {
-		t.seen = make(map[int64]time.Time)
+	if needLoad {
+		t.loaded[userID] = true
+		if !loaded.IsZero() && loaded.After(t.seen[userID]) {
+			t.seen[userID] = loaded
+			t.persisted[userID] = loaded
+		}
 	}
 	switch {
 	case st.Presence == event.PresenceOnline:
 		t.seen[userID] = now
-	case st.Presence == event.PresenceUnavailable && strings.HasPrefix(st.StatusMsg, LastSeenPrefix) && !isExactLastSeen(st.StatusMsg):
+		if t.persist != nil && now.Sub(t.persisted[userID]) >= lastOnlinePersistEvery {
+			t.persisted[userID] = now
+			go t.persist(userID, now)
+		}
+	case vague:
 		if last, ok := t.seen[userID]; ok {
 			st.StatusMsg = LastSeenPrefix + last.UTC().Truncate(time.Second).Format(time.RFC3339)
 		}
