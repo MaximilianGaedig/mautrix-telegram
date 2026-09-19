@@ -35,8 +35,7 @@ type TelegramConnector struct {
 	useDirectMedia bool
 	maxFileSize    int64
 
-	presence   *presence.Manager
-	lastOnline lastOnlineTracker
+	presence *presence.Manager
 }
 
 var _ bridgev2.NetworkConnector = (*TelegramConnector)(nil)

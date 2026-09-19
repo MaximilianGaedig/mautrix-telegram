@@ -258,6 +258,9 @@ func (tc *TelegramClient) onUpdateNewMessage(ctx context.Context, entities tg.En
 		if err := resultToError(res); err != nil {
 			return err
 		}
+		if !isBroadcastChannel {
+			tc.noteActivity(sender, time.Unix(int64(msg.Date), 0))
+		}
 
 		if len(msg.Reactions.Results) > 0 {
 			return tc.handleTelegramReactions(ctx, msg.PeerID, topicID, msg.ID, msg.Reactions, "updateNewMessage")
@@ -1190,6 +1193,7 @@ func (tc *TelegramClient) handleTyping(portal networkid.PortalKey, sender bridge
 	if sender.IsFromMe || (sender.Sender == tc.userID && sender.SenderLogin == tc.userLogin.ID) {
 		return nil
 	}
+	tc.noteActivity(sender, time.Now())
 	timeout := time.Duration(6) * time.Second
 	var typingType bridgev2.TypingType
 	switch action.(type) {
@@ -1241,6 +1245,7 @@ func (tc *TelegramClient) updateReadReceipt(ctx context.Context, e tg.Entities, 
 		LastTarget:          ids.MakeMessageID(update.Peer, update.MaxID),
 		ReadUpToStreamOrder: int64(update.MaxID),
 	})
+	tc.noteActivity(bridgev2.EventSender{Sender: ids.MakeUserID(user.UserID)}, time.Now())
 	return resultToError(res)
 }
 

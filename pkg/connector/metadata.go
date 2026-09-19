@@ -48,10 +48,6 @@ type GhostMetadata struct {
 
 	ContactSource   int64 `json:"contact_source,omitempty"`
 	SourceIsContact bool  `json:"source_is_contact,omitempty"`
-
-	// LastOnline is when Telegram last said this user was online (unix seconds), kept across
-	// restarts to date their "last seen" while Telegram only says "recently".
-	LastOnline int64 `json:"last_online,omitempty"`
 }
 
 func (gm *GhostMetadata) IsMin() bool {

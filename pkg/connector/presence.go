@@ -18,10 +18,9 @@ package connector
 
 import (
 	"context"
-	"strings"
-	"sync"
 	"time"
 
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/ids"
@@ -29,41 +28,22 @@ import (
 	"go.mau.fi/mautrix-telegram/pkg/presence"
 )
 
-// LastSeenPrefix starts every status_msg the bridge sets, so clients can
-// recognise and reformat it (e.g. "last seen 5 minutes ago").
-const LastSeenPrefix = "last seen "
-
-// mapTelegramStatus converts a Telegram user status to Matrix presence.
-//
-// Matrix's PUT /presence can't carry last_active_ago, so the exact last-seen
-// time (UserStatusOffline.WasOnline) goes into status_msg as
-// "last seen <RFC3339 UTC>". Hidden last-seen becomes "last seen recently",
-// "last seen within a week" or "last seen within a month", like Telegram shows.
+// mapTelegramStatus turns a Telegram user status into presence. Only what Telegram actually says is
+// used: online (until it expires) and offline. The vague statuses of users who hide their last seen
+// ("recently", "within a week/month") say nothing about now and are ignored; for those users the
+// bridge sees activity instead (messages, typing, read receipts; see noteActivity).
 func mapTelegramStatus(status tg.UserStatusClass, now time.Time) (presence.State, bool) {
 	switch s := status.(type) {
 	case *tg.UserStatusOnline:
 		until := time.Unix(int64(s.Expires), 0)
 		if s.Expires > 0 && !until.After(now) {
-			return presence.State{Presence: event.PresenceUnavailable}, true
+			return presence.State{Presence: event.PresenceOffline}, true
 		}
 		if s.Expires <= 0 {
 			until = time.Time{}
 		}
 		return presence.State{Presence: event.PresenceOnline, Until: until}, true
 	case *tg.UserStatusOffline:
-		st := presence.State{Presence: event.PresenceOffline}
-		if s.WasOnline > 0 {
-			st.StatusMsg = LastSeenPrefix + time.Unix(int64(s.WasOnline), 0).UTC().Format(time.RFC3339)
-		}
-		return st, true
-	// Last seen is hidden by the user's privacy settings.
-	case *tg.UserStatusRecently:
-		return presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "recently"}, true
-	case *tg.UserStatusLastWeek:
-		return presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "within a week"}, true
-	case *tg.UserStatusLastMonth:
-		return presence.State{Presence: event.PresenceUnavailable, StatusMsg: LastSeenPrefix + "within a month"}, true
-	case *tg.UserStatusEmpty:
 		return presence.State{Presence: event.PresenceOffline}, true
 	default:
 		return presence.State{}, false
@@ -82,30 +62,6 @@ func (tc *TelegramConnector) startPresence(ctx context.Context) {
 	}, presence.GhostSender(tc.Bridge))
 	log := tc.Bridge.Log.With().Str("component", "presence").Logger()
 	bg := log.WithContext(context.WithoutCancel(ctx))
-	tc.lastOnline.persist = func(userID int64, at time.Time) {
-		ghost, err := tc.Bridge.GetGhostByID(bg, ids.MakeUserID(userID))
-		if err != nil || ghost == nil {
-			return
-		}
-		meta, ok := ghost.Metadata.(*GhostMetadata)
-		if !ok || meta.LastOnline >= at.Unix() {
-			return
-		}
-		meta.LastOnline = at.Unix()
-		if err = tc.Bridge.DB.Ghost.Update(bg, ghost.Ghost); err != nil {
-			log.Debug().Err(err).Int64("user_id", userID).Msg("Failed to save last online time")
-		}
-	}
-	tc.lastOnline.load = func(userID int64) time.Time {
-		ghost, err := tc.Bridge.GetGhostByID(bg, ids.MakeUserID(userID))
-		if err != nil || ghost == nil {
-			return time.Time{}
-		}
-		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LastOnline > 0 {
-			return time.Unix(meta.LastOnline, 0)
-		}
-		return time.Time{}
-	}
 	go tc.presence.Run(bg)
 }
 
@@ -118,69 +74,13 @@ func (tc *TelegramClient) handleUserStatus(userID int64, status tg.UserStatusCla
 	if !ok {
 		return
 	}
-	st = tc.main.lastOnline.apply(userID, st, now)
 	tc.main.presence.Update(string(ids.MakeUserID(userID)), st)
 }
 
-// lastOnlineTracker remembers when Telegram last said each user was online. When Telegram later
-// only reports a vague status ("recently" etc., because the exact last-seen time is hidden from us),
-// that time is used instead, so clients can still show "last seen 21:40". It's accurate to roughly
-// the status poll interval, and saved in the ghost's metadata (at most once a minute per user) so it
-// survives restarts.
-type lastOnlineTracker struct {
-	lock      sync.Mutex
-	seen      map[int64]time.Time
-	persisted map[int64]time.Time
-	loaded    map[int64]bool
-
-	// persist saves a user's last online time; load reads it back. Both may be nil (tests).
-	persist func(userID int64, at time.Time)
-	load    func(userID int64) time.Time
-}
-
-// lastOnlinePersistEvery limits how often one user's last online time is written.
-const lastOnlinePersistEvery = time.Minute
-
-func (t *lastOnlineTracker) apply(userID int64, st presence.State, now time.Time) presence.State {
-	vague := st.Presence == event.PresenceUnavailable && strings.HasPrefix(st.StatusMsg, LastSeenPrefix) &&
-		!isExactLastSeen(st.StatusMsg)
-	t.lock.Lock()
-	if t.seen == nil {
-		t.seen, t.persisted, t.loaded = map[int64]time.Time{}, map[int64]time.Time{}, map[int64]bool{}
+// noteActivity marks a sender online for a while after they did something (see presence.Manager.Activity).
+func (tc *TelegramClient) noteActivity(sender bridgev2.EventSender, at time.Time) {
+	if tc.main.presence == nil || sender.IsFromMe || sender.Sender == "" || sender.Sender == tc.userID {
+		return
 	}
-	_, known := t.seen[userID]
-	needLoad := vague && !known && !t.loaded[userID] && t.load != nil
-	t.lock.Unlock()
-	var loaded time.Time
-	if needLoad {
-		loaded = t.load(userID)
-	}
-
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	if needLoad {
-		t.loaded[userID] = true
-		if !loaded.IsZero() && loaded.After(t.seen[userID]) {
-			t.seen[userID] = loaded
-			t.persisted[userID] = loaded
-		}
-	}
-	switch {
-	case st.Presence == event.PresenceOnline:
-		t.seen[userID] = now
-		if t.persist != nil && now.Sub(t.persisted[userID]) >= lastOnlinePersistEvery {
-			t.persisted[userID] = now
-			go t.persist(userID, now)
-		}
-	case vague:
-		if last, ok := t.seen[userID]; ok {
-			st.StatusMsg = LastSeenPrefix + last.UTC().Truncate(time.Second).Format(time.RFC3339)
-		}
-	}
-	return st
-}
-
-func isExactLastSeen(msg string) bool {
-	_, err := time.Parse(time.RFC3339, strings.TrimPrefix(msg, LastSeenPrefix))
-	return err == nil
+	tc.main.presence.Activity(string(sender.Sender), at)
 }
