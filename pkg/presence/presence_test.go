@@ -171,8 +171,16 @@ func TestMaxTrackedEvictsSettled(t *testing.T) {
 func TestTokenBucket(t *testing.T) {
 	now := time.Unix(0, 0)
 	tb := NewTokenBucket(1, 2, now)
-	if !tb.Allow(now) || !tb.Allow(now) || tb.Allow(now) {
-		t.Fatal("burst of 2 expected")
+	// One call per statement: each Allow spends a token, which a chain of them in one condition hides
+	// (and staticcheck reads as the same expression repeated).
+	if !tb.Allow(now) {
+		t.Fatal("the first of a burst of 2 should be allowed")
+	}
+	if !tb.Allow(now) {
+		t.Fatal("the second of a burst of 2 should be allowed")
+	}
+	if tb.Allow(now) {
+		t.Fatal("the burst is 2, so the third should not be allowed")
 	}
 	if tb.Allow(now.Add(500 * time.Millisecond)) {
 		t.Fatal("half a token should not be enough")
@@ -180,8 +188,15 @@ func TestTokenBucket(t *testing.T) {
 	if !tb.Allow(now.Add(time.Second)) {
 		t.Fatal("one token after a second")
 	}
-	if !tb.Allow(now.Add(time.Hour)) || !tb.Allow(now.Add(time.Hour)) || tb.Allow(now.Add(time.Hour)) {
-		t.Fatal("refill must cap at burst")
+	hour := now.Add(time.Hour)
+	if !tb.Allow(hour) {
+		t.Fatal("an hour's refill should allow the first")
+	}
+	if !tb.Allow(hour) {
+		t.Fatal("an hour's refill should allow the second")
+	}
+	if tb.Allow(hour) {
+		t.Fatal("a refill must cap at the burst, so the third should not be allowed")
 	}
 }
 
