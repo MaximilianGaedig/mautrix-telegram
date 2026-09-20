@@ -98,6 +98,7 @@ type TelegramConfig struct {
 	AlwaysTombstoneOnSupergroupMigration bool                `yaml:"always_tombstone_on_supergroup_migration"`
 	ImageAsFilePixels                    int                 `yaml:"image_as_file_pixels"`
 	DisableViewOnce                      bool                `yaml:"disable_view_once"`
+	DirectMediaMinSize                   int64               `yaml:"direct_media_min_size"`
 	VideoURLPreviewAsFile                bool                `yaml:"video_url_preview_as_file"`
 	BridgeCommunities                    bool                `yaml:"bridge_communities"`
 	InlineButtonFallback                 bool                `yaml:"inline_button_fallback"`
@@ -163,6 +164,7 @@ func upgradeConfig(helper up.Helper) {
 	bridgeconfig.CopyToOtherLocation(helper, up.Int, []string{"app_id"}, []string{"api_id"})
 	bridgeconfig.CopyToOtherLocation(helper, up.Str, []string{"app_hash"}, []string{"api_hash"})
 	helper.Copy(up.Int, "api_id")
+	helper.Copy(up.Int, "direct_media_min_size")
 	helper.Copy(up.Str, "api_hash")
 	helper.Copy(up.Str|up.Null, "device_info", "device_model")
 	helper.Copy(up.Str|up.Null, "device_info", "system_version")

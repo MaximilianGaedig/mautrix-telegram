@@ -33,6 +33,16 @@ import (
 
 var _ bridgev2.DirectMediableNetwork = (*TelegramConnector)(nil)
 
+// directMediaFor reports whether a file of this size is served on demand rather than stored. Files
+// whose size isn't known count as small when a threshold is set: what can't be judged is stored.
+func (tc *TelegramConnector) directMediaFor(size int64) bool {
+	if !tc.useDirectMedia {
+		return false
+	}
+	min := tc.Config.DirectMediaMinSize
+	return min <= 0 || (size > 0 && size >= min)
+}
+
 // getMessagesByID fetches a single message from Telegram by its ID. Channels and supergroups have their own
 // message ID space and need a different method than users and basic groups, which share one.
 func (tc *TelegramClient) getMessagesByID(ctx context.Context, peerType ids.PeerType, peerID int64, msgID int) (tg.ModifiedMessagesMessages, error) {

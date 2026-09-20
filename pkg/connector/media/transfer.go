@@ -427,6 +427,9 @@ func (t *ReadyTransferer) Transfer(ctx context.Context, db *store.Container, int
 }
 
 // Stream streams the media from Telegram to an [io.Reader].
+// Size is the file's size in bytes as far as Telegram said, or 0 if it didn't.
+func (t *ReadyTransferer) Size() int64 { return int64(t.inner.fileInfo.Size) }
+
 func (t *ReadyTransferer) Stream(ctx context.Context) (r io.Reader, mimeType string, fileSize int, err error) {
 	var storageFileTypeClass tg.StorageFileTypeClass
 	storageFileTypeClass, r, err = downloader.NewDownloader().WithPartSize(1024*1024).Download(t.inner.client, t.loc).StreamToReader(ctx)

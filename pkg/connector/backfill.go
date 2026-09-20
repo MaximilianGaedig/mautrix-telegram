@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -37,7 +38,46 @@ import (
 var (
 	_ bridgev2.BackfillingNetworkAPI           = (*TelegramClient)(nil)
 	_ bridgev2.BackfillingNetworkAPIWithLimits = (*TelegramClient)(nil)
+	_ bridgev2.BackfillCountingNetworkAPI      = (*TelegramClient)(nil)
 )
+
+// CountRemoteMessages asks Telegram how many messages a chat has, so the import can be checked
+// against it. Service messages count, since Telegram counts them too; the bridge doesn't import
+// those, so the two totals legitimately differ by about that many.
+func (tc *TelegramClient) CountRemoteMessages(ctx context.Context, portal *bridgev2.Portal) (int, error) {
+	if tc.metadata.IsBot {
+		return 0, fmt.Errorf("bots cannot read history")
+	}
+	peer, topicID, err := tc.inputPeerForPortalID(ctx, portal.ID)
+	if err != nil {
+		return 0, err
+	}
+	if topicID == ids.TopicIDSpaceRoom {
+		return 0, fmt.Errorf("space rooms have no messages")
+	}
+	var req bin.Object = &tg.MessagesGetHistoryRequest{Peer: peer, Limit: 1}
+	if topicID > 0 {
+		req = &tg.MessagesGetRepliesRequest{Peer: peer, MsgID: topicID, Limit: 1}
+	}
+	var box tg.MessagesMessagesBox
+	retry := true
+	for attempts := 0; retry && attempts < 5; attempts++ {
+		retry, err = tgerr.FloodWait(ctx, tc.client.Invoke(ctx, req, &box))
+	}
+	if err != nil {
+		return 0, err
+	}
+	switch msgs := box.Messages.(type) {
+	case *tg.MessagesMessagesSlice:
+		return msgs.Count, nil
+	case *tg.MessagesChannelMessages:
+		return msgs.Count, nil
+	case *tg.MessagesMessages:
+		return len(msgs.Messages), nil
+	default:
+		return 0, fmt.Errorf("unsupported messages type %T", box.Messages)
+	}
+}
 
 // getTakeoutID blocks until the takeout ID is available.
 func (tc *TelegramClient) getTakeoutID(ctx context.Context) (takeoutID int64, err error) {
@@ -151,6 +191,14 @@ func (tc *TelegramClient) FetchMessages(ctx context.Context, fetchParams bridgev
 			// This can happen if the oldest message is something like a call log
 			log.Warn().Err(err).Msg("Failed to parse anchor message ID")
 			aggressiveDedup = true
+		}
+	}
+	// The anchor is the oldest message that was bridged. A batch that bridged nothing (all service
+	// messages, say) leaves it where it was, so the cursor, the last message the previous batch
+	// looked at, is what moves the import on.
+	if !fetchParams.Forward && fetchParams.Cursor != "" {
+		if cursorID, err := strconv.Atoi(string(fetchParams.Cursor)); err == nil && (offsetID == 0 || cursorID < offsetID) {
+			offsetID = cursorID
 		}
 	}
 	origOffsetID := offsetID
@@ -337,7 +385,8 @@ func (tc *TelegramClient) FetchMessages(ctx context.Context, fetchParams bridgev
 	return &bridgev2.FetchMessagesResponse{
 		Messages: backfillMessages,
 		Cursor:   cursor,
-		HasMore:  len(backfillMessages) > 0,
+		// There is more as long as Telegram returned anything, even if none of it could be bridged.
+		HasMore:  len(messages) > 0,
 		Forward:  fetchParams.Forward,
 		MarkRead: markRead,
 

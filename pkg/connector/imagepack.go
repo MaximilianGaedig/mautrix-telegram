@@ -567,7 +567,7 @@ func (tc *TelegramClient) DownloadImagePack(ctx context.Context, url string) (*b
 			WithStickerConfig(tc.main.Config.AnimatedSticker).
 			WithForceWebmStickerConvert(set.Set.Emojis).
 			WithDocument(rawDoc, false)
-		if tc.main.useDirectMedia {
+		if tc.main.directMediaFor(0) {
 			mxc, info, err = xfer.StickerDirectDownloadURL(ctx, tc.main.Bridge, set.Set, tc.telegramUserID)
 		} else {
 			mxc, _, info, err = xfer.Transfer(ctx, tc.main.Store, tc.main.Bridge.Bot)

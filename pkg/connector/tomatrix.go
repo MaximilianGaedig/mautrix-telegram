@@ -502,7 +502,7 @@ func (tc *TelegramClient) webpageToBeeperLinkPreview(ctx context.Context, portal
 	if photo, ok := webpage.Photo.(*tg.Photo); ok && (!tc.main.Config.VideoURLPreviewAsFile || unwrapWebPage(msgMedia) == nil) {
 		var fileInfo *event.FileInfo
 		transferer := media.NewTransferer(tc.client.API()).WithPhoto(photo)
-		if tc.main.useDirectMedia {
+		if tc.main.directMediaFor(0) {
 			preview.ImageURL, fileInfo, err = transferer.DirectDownloadURL(ctx, tc.telegramUserID, portal, msg.ID, true, 0)
 		} else {
 			preview.ImageURL, preview.ImageEncryption, fileInfo, err = transferer.Transfer(ctx, tc.main.Store, intent)
@@ -638,7 +638,7 @@ func (tc *TelegramClient) convertMediaRequiringUpload(
 			thumbnailTransferer := media.NewTransferer(tc.client.API()).
 				WithRoomID(portal.MXID).
 				WithPhoto(photo)
-			if tc.main.useDirectMedia {
+			if tc.main.directMediaFor(0) {
 				thumbnailURL, thumbnailInfo, err = thumbnailTransferer.DirectDownloadURL(ctx, tc.telegramUserID, portal, msgID, true, photo.ID)
 				if err != nil {
 					log.Err(err).Msg("Failed to create direct download URL for thumbnail")
@@ -772,7 +772,7 @@ func (tc *TelegramClient) convertMediaRequiringUpload(
 				WithRoomID(portal.MXID).
 				WithPhoto(msgMedia.VideoCover.(*tg.Photo))
 		}
-		if tc.main.useDirectMedia && thumbnailTransferer != nil {
+		if tc.main.directMediaFor(0) && thumbnailTransferer != nil {
 			thumbnailURL, thumbnailInfo, err = thumbnailTransferer.DirectDownloadURL(ctx, tc.telegramUserID, portal, msgID, true, document.ID)
 			if err != nil {
 				log.Err(err).Msg("Failed to create direct download URL for thumbnail")
@@ -803,7 +803,7 @@ func (tc *TelegramClient) convertMediaRequiringUpload(
 	}
 
 	var err error
-	if tc.main.useDirectMedia {
+	if tc.main.directMediaFor(mediaTransferer.Size()) {
 		content.URL, content.Info, err = mediaTransferer.DirectDownloadURL(ctx, tc.telegramUserID, portal, msgID, false, telegramMediaID)
 		if err != nil {
 			log.Err(err).Msg("Failed to create direct download URL for media")
@@ -1082,7 +1082,7 @@ func (tc *TelegramClient) convertUserProfilePhoto(ctx context.Context, user *tg.
 		ID: ids.MakeAvatarID(photo.PhotoID),
 	}
 
-	if tc.main.useDirectMedia {
+	if tc.main.directMediaFor(0) {
 		mediaID, err := ids.DirectMediaInfo{
 			PeerType: ids.PeerTypeUser,
 			PeerID:   user.ID,
@@ -1134,7 +1134,7 @@ func (tc *TelegramClient) convertChatPhoto(chat tg.InputPeerClass, rawChatPhoto 
 		ID: ids.MakeAvatarID(chatPhoto.PhotoID),
 	}
 
-	if tc.main.useDirectMedia {
+	if tc.main.directMediaFor(0) {
 		var peerID int64
 		var peerType ids.PeerType
 		switch typedChat := chat.(type) {
@@ -1184,7 +1184,7 @@ func (tc *TelegramClient) convertPhoto(ctx context.Context, peerType ids.PeerTyp
 		ID: ids.MakeAvatarID(photo.GetID()),
 	}
 
-	if tc.main.useDirectMedia {
+	if tc.main.directMediaFor(0) {
 		mediaID, err := ids.DirectMediaInfo{
 			PeerType: peerType,
 			PeerID:   peerID,

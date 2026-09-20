@@ -114,6 +114,11 @@ always_tombstone_on_supergroup_migration: false
 image_as_file_pixels: 16777216
 # Should view-once messages be disabled entirely?
 disable_view_once: false
+# With direct media enabled (see the bridge-wide direct_media section): the smallest file, in bytes,
+# that is served straight from Telegram when someone opens it, instead of being stored on the
+# homeserver. Smaller files, thumbnails and avatars are stored as usual. 0 means everything is
+# served on demand.
+direct_media_min_size: 0
 # Should video URL previews be bridged as m.video messages to Matrix?
 # By default, video URL previews will not be bridged.
 video_url_preview_as_file: false

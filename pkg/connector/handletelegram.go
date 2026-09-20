@@ -1389,7 +1389,7 @@ func (tc *TelegramClient) transferEmojisToMatrix(ctx context.Context, customEmoj
 		return
 	}
 
-	if tc.main.useDirectMedia {
+	if tc.main.directMediaFor(0) {
 		for _, emojiID := range customEmojiIDs {
 			mediaID, err := ids.DirectMediaInfo{
 				PeerType: ids.FakePeerTypeEmoji,
