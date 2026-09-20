@@ -24,6 +24,7 @@ import (
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/ids"
 	"go.mau.fi/mautrix-telegram/pkg/gotd/tg"
+	"go.mau.fi/mautrix-telegram/pkg/gotd/tgerr"
 )
 
 const (
@@ -46,40 +47,46 @@ func (tc *TelegramClient) pollPresence(ctx context.Context) {
 	}
 	log := zerolog.Ctx(ctx).With().Str("action", "poll presence").Logger()
 	ctx = log.WithContext(ctx)
-	ticker := time.NewTicker(presencePollInterval)
-	defer ticker.Stop()
 	var dmUsers []int64
 	for i := 0; ; i++ {
-		contacts := tc.pollContactStatuses(ctx)
+		contacts, wait := tc.pollContactStatuses(ctx)
 		if i%presencePollDMRefresh == 0 {
 			dmUsers = tc.dmPartnerIDs(ctx)
 		}
 		others := tc.pollUserStatuses(ctx, dmUsers, contacts)
 		log.Debug().Int("contacts", len(contacts)).Int("dm_non_contacts", others).Msg("Polled Telegram statuses")
+		// Telegram answers a poll that comes too often with a flood wait. Asking again before it has
+		// passed only earns another one and spends request budget the history import needs, so the next
+		// poll waits it out.
+		next := max(presencePollInterval, wait)
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-time.After(next):
 		}
 	}
 }
 
 // pollContactStatuses fetches all contacts' statuses in one call and returns
 // the set of contact user IDs.
-func (tc *TelegramClient) pollContactStatuses(ctx context.Context) map[int64]struct{} {
+// It also reports how long Telegram asked the bridge to wait before polling again, if it did.
+func (tc *TelegramClient) pollContactStatuses(ctx context.Context) (map[int64]struct{}, time.Duration) {
 	statuses, err := tc.client.API().ContactsGetStatuses(ctx)
 	if err != nil {
-		if ctx.Err() == nil {
+		wait, isFlood := tgerr.AsFloodWait(err)
+		if ctx.Err() == nil && !isFlood {
 			zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get contact statuses")
+		} else if isFlood {
+			zerolog.Ctx(ctx).Debug().Dur("wait", wait).Msg("Telegram asked to poll statuses less often")
 		}
-		return nil
+		return nil, wait
 	}
 	seen := make(map[int64]struct{}, len(statuses))
 	for _, st := range statuses {
 		seen[st.UserID] = struct{}{}
 		tc.handleUserStatus(st.UserID, st.Status)
 	}
-	return seen
+	return seen, 0
 }
 
 // dmPartnerIDs lists the Telegram users this login has DM portals with.
