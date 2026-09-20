@@ -39,6 +39,7 @@ var (
 	_ bridgev2.BackfillingNetworkAPI           = (*TelegramClient)(nil)
 	_ bridgev2.BackfillingNetworkAPIWithLimits = (*TelegramClient)(nil)
 	_ bridgev2.BackfillCountingNetworkAPI      = (*TelegramClient)(nil)
+	_ bridgev2.ChatCountingNetworkAPI          = (*TelegramClient)(nil)
 )
 
 // CountRemoteMessages asks Telegram how many messages a chat has, so the import can be checked
@@ -422,4 +423,36 @@ func (tc *TelegramClient) GetBackfillMaxBatchCount(ctx context.Context, portal *
 		log.Error().Str("peer_type", string(peerType)).Msg("unknown peer type")
 		return 0
 	}
+}
+
+// CountRemoteChats asks Telegram how many chats the account has, archived ones included, so the
+// bridge can check that every one of them has a room.
+func (tc *TelegramClient) CountRemoteChats(ctx context.Context) (int, error) {
+	if tc.metadata.IsBot {
+		return 0, fmt.Errorf("bots have no chat list")
+	}
+	total := 0
+	for _, folderID := range []int{0, 1} {
+		var box tg.MessagesDialogsBox
+		req := &tg.MessagesGetDialogsRequest{
+			OffsetPeer: &tg.InputPeerEmpty{},
+			Limit:      1,
+			FolderID:   folderID,
+		}
+		var err error
+		retry := true
+		for attempts := 0; retry && attempts < 5; attempts++ {
+			retry, err = tgerr.FloodWait(ctx, tc.client.Invoke(ctx, req, &box))
+		}
+		if err != nil {
+			return 0, err
+		}
+		switch dialogs := box.Dialogs.(type) {
+		case *tg.MessagesDialogsSlice:
+			total += dialogs.Count
+		case *tg.MessagesDialogs:
+			total += len(dialogs.Dialogs)
+		}
+	}
+	return total, nil
 }
