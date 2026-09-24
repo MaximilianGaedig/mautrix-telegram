@@ -100,8 +100,14 @@ func (m *Manager) checkParticipant(ctx context.Context, api API, userID, channel
 			return true, nil
 		}
 	} else {
-		switch pcp.Participant.(type) {
-		case *tg.ChannelParticipantLeft, *tg.ChannelParticipantBanned:
+		switch participant := pcp.Participant.(type) {
+		case *tg.ChannelParticipantLeft:
+			lg.Warn("Removing update state for channel as user has left")
+		case *tg.ChannelParticipantBanned:
+			if !participant.Left && !participant.BannedRights.ViewMessages {
+				lg.Debug("Membership confirmed (restricted)", zap.Any("participant", participant))
+				return true, nil
+			}
 			lg.Warn("Removing update state for channel as user is left or banned")
 		default:
 			lg.Debug("Membership confirmed", zap.Any("participant", pcp.Participant))
@@ -145,8 +151,10 @@ func (m *Manager) Run(ctx context.Context, api API, userID int64, opt AuthOption
 			return errors.Wrap(err, "load internalState")
 		}
 		channels := make(map[int64]PtsAccessHashTuple)
+		var leftChannels []int64
 		if err := m.cfg.Storage.ForEachChannels(ctx, userID, func(ctx context.Context, channelID int64, pts int) error {
 			if pts == -1 {
+				leftChannels = append(leftChannels, channelID)
 				return nil
 			}
 			hash, found, err := m.cfg.AccessHasher.GetChannelAccessHash(ctx, userID, channelID)
@@ -157,6 +165,7 @@ func (m *Manager) Run(ctx context.Context, api API, userID int64, opt AuthOption
 			} else if isMember, err := m.checkParticipant(ctx, api, userID, channelID, hash); err != nil {
 				return fmt.Errorf("failed to check if user is participant: %w", err)
 			} else if !isMember {
+				leftChannels = append(leftChannels, channelID)
 				return nil
 			}
 			channels[channelID] = PtsAccessHashTuple{Pts: pts, AccessHash: hash}
@@ -173,6 +182,7 @@ func (m *Manager) Run(ctx context.Context, api API, userID int64, opt AuthOption
 		m.state = newState(ctx, stateConfig{
 			State:            state,
 			Channels:         channels,
+			LeftChannels:     leftChannels,
 			RawClient:        api,
 			Tracer:           m.tracer,
 			Logger:           m.cfg.Logger,
