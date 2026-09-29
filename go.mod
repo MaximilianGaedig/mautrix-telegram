@@ -24,9 +24,9 @@ require (
 	github.com/klauspost/compress v1.19.2
 	github.com/rogpeppe/go-internal v1.16.0
 	github.com/rs/zerolog v1.35.1
-	github.com/stretchr/testify v1.12.0
+	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/gjson v1.19.0
-	go.mau.fi/util v0.10.1
+	go.mau.fi/util v0.10.2-0.20260918225449-a4c0d5b86aa8
 	go.mau.fi/webp v0.3.0
 	go.mau.fi/zerozap v0.1.2
 	go.opentelemetry.io/otel v1.45.0
@@ -48,7 +48,7 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/PuerkitoBio/goquery v1.10.3 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/benbjohnson/clock v1.3.0 // indirect
+	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/go-faster/sdk v0.28.0 // indirect
@@ -68,6 +68,7 @@ require (
 	github.com/yuin/goldmark v1.8.6 // indirect
 	go.mau.fi/zeroconfig v0.2.0 // indirect
 	go.uber.org/ratelimit v0.3.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
@@ -77,4 +78,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace maunium.net/go/mautrix => github.com/MaximilianGaedig/mautrix-go v0.31.1-0.20260921103452-fa2f4bab9636
+replace maunium.net/go/mautrix => github.com/MaximilianGaedig/mautrix-go v0.31.1-0.20260929162938-f0f02f158d54
