@@ -31,6 +31,7 @@ import (
 	"go.mau.fi/util/exmaps"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/calllog"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
@@ -474,32 +475,15 @@ func (tc *TelegramClient) handleServiceMessage(ctx context.Context, msg *tg.Mess
 		})
 		return resultToError(res)
 	case *tg.MessageActionPhoneCall:
-		var body strings.Builder
+		if evt := finishLoggedCall(tc.calls(), action, eventMeta.Timestamp); evt != nil {
+			// The call rang here, so its message is edited instead of a second one being added.
+			return resultToError(tc.main.Bridge.QueueRemoteEvent(tc.userLogin, evt))
+		}
+		call := callFromAction(action, msg.Out, eventMeta.PortalKey, sender, eventMeta.Timestamp)
+		callType := event.BeeperActionMessageCallTypeVoice
 		if action.Video {
-			body.WriteString("Video call ")
-		} else {
-			body.WriteString("Call ")
+			callType = event.BeeperActionMessageCallTypeVideo
 		}
-		switch action.Reason.TypeID() {
-		case tg.PhoneCallDiscardReasonMissedTypeID:
-			body.WriteString("missed")
-		case tg.PhoneCallDiscardReasonDisconnectTypeID:
-			body.WriteString("disconnected")
-		case tg.PhoneCallDiscardReasonHangupTypeID:
-			body.WriteString("ended")
-		case tg.PhoneCallDiscardReasonBusyTypeID:
-			body.WriteString("rejected")
-		default:
-			log.Warn().Stringer("end_reason", action.Reason).Msg("Unknown call end reason")
-			return nil
-		}
-
-		if action.Duration > 0 {
-			body.WriteString(" (")
-			body.WriteString(exfmt.Duration(time.Duration(action.Duration) * time.Second))
-			body.WriteString(")")
-		}
-
 		res := tc.main.Bridge.QueueRemoteEvent(tc.userLogin, &simplevent.Message[any]{
 			EventMeta: eventMeta.WithType(bridgev2.RemoteEventMessage),
 			ID:        ids.GetMessageIDFromMessage(msg),
@@ -507,8 +491,15 @@ func (tc *TelegramClient) handleServiceMessage(ctx context.Context, msg *tg.Mess
 				return &bridgev2.ConvertedMessage{
 					Parts: []*bridgev2.ConvertedMessagePart{
 						{
-							Type:    event.EventMessage,
-							Content: &event.MessageEventContent{MsgType: event.MsgNotice, Body: body.String()},
+							Type: event.EventMessage,
+							Content: &event.MessageEventContent{
+								MsgType: event.MsgNotice,
+								Body:    call.Text(),
+								BeeperActionMessage: &event.BeeperActionMessage{
+									Type:     event.BeeperActionMessageCall,
+									CallType: callType,
+								},
+							},
 						},
 					},
 				}, nil
@@ -1642,44 +1633,14 @@ func (tc *TelegramClient) onPhoneCall(ctx context.Context, e tg.Entities, update
 		return nil
 	}
 
-	var callType event.BeeperActionMessageCallType
-	var body strings.Builder
-	body.WriteString("Started a ")
-	if call.Video {
-		callType = event.BeeperActionMessageCallTypeVideo
-		body.WriteString("video call")
-	} else {
-		callType = event.BeeperActionMessageCallTypeVoice
-		body.WriteString("call")
-	}
-	res := tc.main.Bridge.QueueRemoteEvent(tc.userLogin, &simplevent.Message[any]{
-		EventMeta: simplevent.EventMeta{
-			Type:         bridgev2.RemoteEventMessage,
-			PortalKey:    tc.makePortalKeyFromID(ids.PeerTypeUser, call.AdminID, 0),
-			CreatePortal: true,
-			Sender:       tc.senderForUserID(call.AdminID),
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("tg_event", "updatePhoneCall")
-			},
-		},
-		ID: networkid.MessageID(fmt.Sprintf("requested-%d", call.ID)),
-		ConvertMessageFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data any) (*bridgev2.ConvertedMessage, error) {
-			return &bridgev2.ConvertedMessage{
-				Parts: []*bridgev2.ConvertedMessagePart{
-					{
-						Type: event.EventMessage,
-						Content: &event.MessageEventContent{
-							MsgType: event.MsgNotice,
-							Body:    body.String(),
-							BeeperActionMessage: &event.BeeperActionMessage{
-								Type:     event.BeeperActionMessageCall,
-								CallType: callType,
-							},
-						},
-					},
-				},
-			}, nil
-		},
+	evt := tc.calls().Start(phoneCallID(call.ID), calllog.Call{
+		Portal:  tc.makePortalKeyFromID(ids.PeerTypeUser, call.AdminID, 0),
+		Caller:  tc.senderForUserID(call.AdminID),
+		Video:   call.Video,
+		Started: time.Unix(int64(call.Date), 0),
 	})
-	return resultToError(res)
+	if evt == nil {
+		return nil
+	}
+	return resultToError(tc.main.Bridge.QueueRemoteEvent(tc.userLogin, evt))
 }

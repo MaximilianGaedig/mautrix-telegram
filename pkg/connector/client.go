@@ -37,6 +37,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/calllog"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
@@ -98,6 +99,9 @@ type TelegramClient struct {
 	availableReactionsFetched time.Time
 	availableReactionsList    []string
 	isPremiumCache            atomic.Bool
+
+	callLogOnce sync.Once
+	callLog     *calllog.Log
 
 	bioClaimLock sync.Mutex
 	bioClaims    map[int64]time.Time
@@ -668,4 +672,10 @@ func (tc *TelegramClient) FillBridgeState(state status.BridgeState) status.Bridg
 	state.Info["is_bot"] = tc.metadata.IsBot
 	state.Info["login_method"] = tc.metadata.LoginMethod
 	return state
+}
+
+// calls is the log of the calls that rang on this login.
+func (tc *TelegramClient) calls() *calllog.Log {
+	tc.callLogOnce.Do(func() { tc.callLog = calllog.New() })
+	return tc.callLog
 }
