@@ -1012,6 +1012,10 @@ func (tc *TelegramClient) onUpdate(ctx context.Context, e tg.Entities, upd tg.Up
 		return tc.onPinnedMessages(ctx, tc.makePortalKeyFromPeer(update.Peer, 0))
 	case *tg.UpdatePinnedChannelMessages:
 		return tc.onPinnedMessages(ctx, tc.makePortalKeyFromID(ids.PeerTypeChannel, update.ChannelID, 0))
+	case *tg.UpdateChannelParticipant:
+		return tc.onChannelParticipant(ctx, update)
+	case *tg.UpdateChatParticipantAdmin:
+		return tc.onChatParticipantAdmin(ctx, update)
 	case *tg.UpdateChatDefaultBannedRights:
 		return tc.onChatDefaultBannedRights(ctx, e, update)
 	case *tg.UpdatePeerBlocked:
