@@ -214,7 +214,7 @@ func makeTimerList() []jsontime.Milliseconds {
 var telegramTimers = makeTimerList()
 
 func (tc *TelegramClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {
-	baseID := "fi.mau.telegram.capabilities.2026_09_30_2"
+	baseID := "fi.mau.telegram.capabilities.2026_09_30_3"
 	feat := &event.RoomFeatures{
 		Formatting:      formattingCaps,
 		File:            fileCaps,
@@ -242,6 +242,7 @@ func (tc *TelegramClient) GetCapabilities(ctx context.Context, portal *bridgev2.
 		State: event.StateFeatureMap{
 			event.StateRoomName.Type:                {Level: event.CapLevelFullySupported},
 			event.StateRoomAvatar.Type:              {Level: event.CapLevelFullySupported},
+			event.StateTopic.Type:                   {Level: event.CapLevelFullySupported},
 			event.StateBeeperDisappearingTimer.Type: {Level: event.CapLevelFullySupported},
 		},
 	}

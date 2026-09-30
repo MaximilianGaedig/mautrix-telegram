@@ -1012,6 +1012,8 @@ func (tc *TelegramClient) onUpdate(ctx context.Context, e tg.Entities, upd tg.Up
 		return tc.onPinnedMessages(ctx, tc.makePortalKeyFromPeer(update.Peer, 0))
 	case *tg.UpdatePinnedChannelMessages:
 		return tc.onPinnedMessages(ctx, tc.makePortalKeyFromID(ids.PeerTypeChannel, update.ChannelID, 0))
+	case *tg.UpdateDialogUnreadMark:
+		return tc.onDialogUnreadMark(update)
 	case *tg.UpdateChannelParticipant:
 		return tc.onChannelParticipant(ctx, update)
 	case *tg.UpdateChatParticipantAdmin:
