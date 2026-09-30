@@ -101,6 +101,9 @@ type MessageMetadata struct {
 	GroupedID int64 `json:"grouped_id,omitempty"`
 	// Poll is set on the message that carries a poll, and only there.
 	Poll *PollMetadata `json:"poll,omitempty"`
+	// LiveLocation marks a live location bridged as a Matrix one: the part is its beacon_info, and edits
+	// of it are new positions.
+	LiveLocation bool `json:"live_location,omitempty"`
 }
 
 // PollMetadata is what the bridge needs to remember about a poll to bridge its votes.

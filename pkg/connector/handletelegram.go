@@ -1172,6 +1172,11 @@ func (tc *TelegramClient) onMessageEdit(ctx context.Context, update IGetMessage)
 		Data:          msg,
 		ConvertEditFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message, data *tg.Message) (*bridgev2.ConvertedEdit, error) {
 			log := zerolog.Ctx(ctx)
+			if live, ok := data.Media.(*tg.MessageMediaGeoLive); ok {
+				if beaconInfo := liveLocationPart(existing); beaconInfo != nil {
+					return nil, tc.updateLiveLocation(ctx, portal, intent, beaconInfo, data, live)
+				}
+			}
 			converted, err := tc.convertToMatrix(ctx, portal, intent, msg)
 			if err != nil {
 				return nil, err

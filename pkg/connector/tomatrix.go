@@ -215,7 +215,14 @@ func (tc *TelegramClient) convertToMatrix(
 
 	var contentURI id.ContentURIString
 	mediaPart, disappearingSetting, mediaHashID := tc.mediaToMatrix(ctx, portal, intent, msg)
-	if mediaPart != nil {
+	var liveLocation []*bridgev2.ConvertedMessagePart
+	if live, ok := msg.Media.(*tg.MessageMediaGeoLive); ok && !liveLocationEnded(msg.Date, live.Period, time.Now()) {
+		liveLocation = convertLiveLocation(intent, msg, live)
+	}
+	if liveLocation != nil {
+		// Its position changes with every edit, so it isn't part of the content hash.
+		cm.Parts = append(cm.Parts, liveLocation...)
+	} else if mediaPart != nil {
 		hasher.Write(mediaHashID)
 		cm.Parts = append(cm.Parts, mediaPart)
 		// Force stickers into images if there is a caption (usually there shouldn't be)
@@ -255,9 +262,10 @@ func (tc *TelegramClient) convertToMatrix(
 	// Messages without a keyboard hash exactly like they did before buttons were bridged.
 	hasher.Write(keyboard.contentHashInput())
 	cm.Parts[0].DBMetadata = &MessageMetadata{
-		ContentHash: hasher.Sum(nil),
-		ContentURI:  contentURI,
-		GroupedID:   msg.GroupedID,
+		ContentHash:  hasher.Sum(nil),
+		ContentURI:   contentURI,
+		GroupedID:    msg.GroupedID,
+		LiveLocation: liveLocation != nil,
 	}
 	if cm.Parts[0].Type == event.EventUnstablePollStart {
 		if media, ok := msg.Media.(*tg.MessageMediaPoll); ok {
@@ -950,7 +958,8 @@ func convertLocation(media tg.MessageMediaClass) *bridgev2.ConvertedMessagePart 
 	extra := map[string]any{}
 	var note string
 	if media.TypeID() == tg.MessageMediaGeoLiveTypeID {
-		note = "Live Location (see your Telegram client for live updates)"
+		// Only an ended share, or one in backfill, is bridged as a static location.
+		note = "Live location"
 	} else if venue, ok := media.(*tg.MessageMediaVenue); ok {
 		note = venue.Title
 		body = fmt.Sprintf("%s (%s)", venue.Address, body)
