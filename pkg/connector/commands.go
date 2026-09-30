@@ -17,6 +17,7 @@
 package connector
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"slices"
@@ -288,4 +289,11 @@ func fnEmojiPack(ce *commands.Event) {
 	default:
 		ce.Reply("Usage: `$cmdprefix emoji-pack <upload/download/list/help> [args...]`")
 	}
+}
+
+var _ bridgev2.ChatListSyncingNetworkAPI = (*TelegramClient)(nil)
+
+// SyncChatList is this bridge's own sync-chats for one login, for bridgev2's generic command.
+func (tc *TelegramClient) SyncChatList(ctx context.Context) error {
+	return tc.syncChats(ctx, 0, false, true)
 }
