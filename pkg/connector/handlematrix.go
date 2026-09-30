@@ -580,6 +580,20 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 		return nil, tc.humaniseSendError(err)
 	}
 
+	return tc.makeSendResponse(ctx, msg, updates, randomID, contentURI, msg.Content.Body)
+}
+
+// makeSendResponse turns Telegram's answer to a send request into the response bridgev2 saves for the Matrix
+// event. body is the text that stands in for the message when Telegram doesn't echo the message back.
+func (tc *TelegramClient) makeSendResponse(
+	ctx context.Context,
+	msg *bridgev2.MatrixMessage,
+	updates tg.UpdatesClass,
+	randomID int64,
+	contentURI id.ContentURIString,
+	body string,
+) (*bridgev2.MatrixMessageResponse, error) {
+	log := zerolog.Ctx(ctx)
 	hasher := sha256.New()
 
 	var tgMessageID, tgDate int
@@ -587,7 +601,7 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 	case *tg.UpdateShortSentMessage:
 		tgMessageID = sentMessage.ID
 		tgDate = sentMessage.Date
-		hasher.Write([]byte(msg.Content.Body))
+		hasher.Write([]byte(body))
 		hasher.Write(mediaHashID(ctx, sentMessage.Media))
 	case *tg.Updates:
 		var realSentMessage *tg.Message
@@ -629,7 +643,7 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 			hasher.Write([]byte(realSentMessage.Message))
 			hasher.Write(mediaHashID(ctx, realSentMessage.Media))
 		} else {
-			hasher.Write([]byte(msg.Content.Body))
+			hasher.Write([]byte(body))
 			tgDate = sentMessage.Date
 		}
 		if tgMessageID == 0 {
@@ -649,7 +663,7 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 		Str("content_hash", base64.StdEncoding.EncodeToString(hash)).
 		Msg("sent message successfully")
 
-	resp = &bridgev2.MatrixMessageResponse{
+	resp := &bridgev2.MatrixMessageResponse{
 		DB: &database.Message{
 			ID:        messageID,
 			SenderID:  tc.userID,
@@ -661,7 +675,7 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 		},
 		StreamOrder: int64(tgMessageID),
 	}
-	return
+	return resp, nil
 }
 
 func (tc *TelegramClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.MatrixEdit) error {
@@ -767,6 +781,8 @@ func (tc *TelegramClient) HandleMatrixMessageRemove(ctx context.Context, msg *br
 		return fmt.Errorf("can't send messages to space portals")
 	} else if dbMsg, err := tc.main.Bridge.DB.Message.GetPartByMXID(ctx, msg.TargetMessage.MXID); err != nil {
 		return err
+	} else if pollID, isVote := parsePollVoteID(dbMsg.ID); isVote {
+		return tc.retractPollVote(ctx, msg.Portal, dbMsg, pollID)
 	} else if _, messageID, err := ids.ParseMessageID(dbMsg.ID); err != nil {
 		return err
 	} else if peer, _, err := tc.inputPeerForPortalID(ctx, msg.Portal.ID); err != nil {

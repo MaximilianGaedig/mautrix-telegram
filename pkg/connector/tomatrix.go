@@ -73,7 +73,7 @@ func mediaHashID(ctx context.Context, m tg.MessageMediaClass) []byte {
 		} else {
 			zerolog.Ctx(ctx).Debug().Msg("Attempted to get hash for nil document")
 		}
-	case *tg.MessageMediaWebPage:
+	case *tg.MessageMediaWebPage, *tg.MessageMediaPoll:
 		return nil
 	default:
 		zerolog.Ctx(ctx).Debug().Type("media_type", m).Msg("Attempted to get hash for unsupported media type ID")
@@ -258,6 +258,11 @@ func (tc *TelegramClient) convertToMatrix(
 		ContentHash: hasher.Sum(nil),
 		ContentURI:  contentURI,
 		GroupedID:   msg.GroupedID,
+	}
+	if cm.Parts[0].Type == event.EventUnstablePollStart {
+		if media, ok := msg.Media.(*tg.MessageMediaPoll); ok {
+			cm.Parts[0].DBMetadata.(*MessageMetadata).Poll = telegramPollMetadata(&media.Poll)
+		}
 	}
 	tagAlbumParts(cm.Parts, tc.getAlbumInfo(ctx, portal, msg))
 
@@ -973,25 +978,12 @@ func convertLocation(media tg.MessageMediaClass) *bridgev2.ConvertedMessagePart 
 }
 
 func convertPoll(media tg.MessageMediaClass) *bridgev2.ConvertedMessagePart {
-	// TODO (PLAT-25224) make this richer in the future once megabridge has support for polls
-
 	poll := media.(*tg.MessageMediaPoll)
-	var textAnswers []string
-	var htmlAnswers strings.Builder
-	for i, opt := range poll.Poll.Answers {
-		text := opt.GetText()
-		textAnswers = append(textAnswers, fmt.Sprintf("%d. %s", i+1, text.Text))
-		htmlAnswers.WriteString(fmt.Sprintf("<li>%s</li>", text.Text))
-	}
-
+	content, extra := telegramPollToMatrix(&poll.Poll)
 	return &bridgev2.ConvertedMessagePart{
-		Type: event.EventMessage,
-		Content: &event.MessageEventContent{
-			MsgType:       event.MsgText,
-			Body:          fmt.Sprintf("Poll: %s\n%s\nOpen the Telegram app to vote.", poll.Poll.Question.Text, strings.Join(textAnswers, "\n")),
-			Format:        event.FormatHTML,
-			FormattedBody: fmt.Sprintf(`<strong>Poll</strong>: %s<ol>%s</ol>Open the Telegram app to vote.`, poll.Poll.Question.Text, htmlAnswers.String()),
-		},
+		Type:    event.EventUnstablePollStart,
+		Content: content,
+		Extra:   extra,
 	}
 }
 

@@ -19,7 +19,6 @@ require (
 	github.com/gotd/getdoc v0.53.0
 	github.com/gotd/ige v0.3.0
 	github.com/gotd/neo v0.1.5
-	github.com/gotd/td v0.162.0
 	github.com/gotd/tl v0.4.0
 	github.com/k0kubun/pp/v3 v3.5.2
 	github.com/klauspost/compress v1.19.2
@@ -60,6 +59,7 @@ require (
 	github.com/petermattis/goid v0.0.0-20260820044319-269ab09b5261 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
+	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -76,4 +76,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace maunium.net/go/mautrix => github.com/MaximilianGaedig/mautrix-go v0.31.1-0.20260930114354-e46a459d1582
+replace maunium.net/go/mautrix => github.com/MaximilianGaedig/mautrix-go v0.31.1-0.20260930120123-2a0db57466cc

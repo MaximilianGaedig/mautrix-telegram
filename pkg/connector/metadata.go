@@ -99,6 +99,23 @@ type MessageMetadata struct {
 	// GroupedID is the Telegram album (grouped_id) the message belongs to.
 	// It's used to compute the fi.mau.album index of later album items.
 	GroupedID int64 `json:"grouped_id,omitempty"`
+	// Poll is set on the message that carries a poll, and only there.
+	Poll *PollMetadata `json:"poll,omitempty"`
+}
+
+// PollMetadata is what the bridge needs to remember about a poll to bridge its votes.
+type PollMetadata struct {
+	// MatrixOptions maps the answer IDs of a poll that was started on Matrix to the option bytes Telegram was
+	// given for them. Polls that started on Telegram use the hex of the option bytes as the answer ID instead.
+	MatrixOptions map[string][]byte `json:"matrix_options,omitempty"`
+	// MaxSelections is how many answers a single vote may pick.
+	MaxSelections int  `json:"max_selections,omitempty"`
+	PublicVoters  bool `json:"public_voters,omitempty"`
+	// Closed is set once the poll end has been bridged to Matrix.
+	Closed bool `json:"closed,omitempty"`
+	// OwnVote is the options key (see pollOptionsKey) of the last vote of the logged-in user that has been
+	// bridged, in either direction. It's empty when the user hasn't voted.
+	OwnVote string `json:"own_vote,omitempty"`
 }
 
 type UserLoginMetadata struct {

@@ -64,7 +64,7 @@ func (tc *TelegramConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilit
 }
 
 func (tc *TelegramConnector) GetBridgeInfoVersion() (info, capabilities int) {
-	return 1, 11
+	return 1, 12
 }
 
 // TODO get these from getConfig instead of hardcoding?
@@ -214,12 +214,18 @@ func makeTimerList() []jsontime.Milliseconds {
 var telegramTimers = makeTimerList()
 
 func (tc *TelegramClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {
-	baseID := "fi.mau.telegram.capabilities.2026_05_27"
+	baseID := "fi.mau.telegram.capabilities.2026_09_30"
 	feat := &event.RoomFeatures{
-		Formatting:          formattingCaps,
-		File:                fileCaps,
-		MaxTextLength:       MaxTextLength,
-		LocationMessage:     event.CapLevelFullySupported,
+		Formatting:      formattingCaps,
+		File:            fileCaps,
+		MaxTextLength:   MaxTextLength,
+		LocationMessage: event.CapLevelFullySupported,
+		// Votes go both ways, but a poll can only be closed on Telegram: bridgev2 doesn't pass poll ends to the network.
+		Poll:                event.CapLevelFullySupported,
+		PollEnd:             event.CapLevelRejected,
+		PollHiddenVotes:     event.CapLevelFullySupported,
+		PollMaxOptions:      maxPollAnswers,
+		PollOptionMaxLength: maxPollAnswerLength,
 		Reply:               event.CapLevelFullySupported,
 		Edit:                event.CapLevelFullySupported,
 		Delete:              event.CapLevelFullySupported,

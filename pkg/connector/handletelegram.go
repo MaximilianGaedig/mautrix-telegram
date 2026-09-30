@@ -255,6 +255,11 @@ func (tc *TelegramClient) onUpdateNewMessage(ctx context.Context, entities tg.En
 		if err := resultToError(res); err != nil {
 			return err
 		}
+		tc.rememberPollMessage(msg)
+		if media, ok := msg.Media.(*tg.MessageMediaPoll); ok && media.Poll.Closed {
+			// The poll was closed before it reached Matrix, so its start and end are bridged together.
+			tc.queuePollEnd(tc.makePortalKeyFromPeer(msg.PeerID, topicID), ids.GetMessageIDFromMessage(msg), sender, &media.Poll, &media.Results)
+		}
 		if !isBroadcastChannel {
 			tc.noteActivity(sender, time.Unix(int64(msg.Date), 0))
 		}
@@ -981,6 +986,8 @@ func (tc *TelegramClient) onUpdate(ctx context.Context, e tg.Entities, upd tg.Up
 		return tc.onMessageReactions(ctx, update)
 	case *tg.UpdateBotMessageReaction:
 		return tc.onBotMessageReaction(ctx, update)
+	case *tg.UpdateMessagePoll:
+		return tc.onMessagePoll(ctx, update)
 	case *tg.UpdateUserTyping:
 		return tc.handleTyping(tc.makePortalKeyFromID(ids.PeerTypeUser, update.UserID, 0), tc.senderForUserID(update.UserID), update.Action)
 	case *tg.UpdateChatUserTyping:
@@ -1113,6 +1120,12 @@ func (tc *TelegramClient) onMessageEdit(ctx context.Context, update IGetMessage)
 	}
 
 	topicID := tc.getTopicID(ctx, msg.PeerID, msg.ReplyTo)
+	if media, ok := msg.Media.(*tg.MessageMediaPoll); ok {
+		// Polls can't be edited on Matrix. Telegram edits them to update the results or close them, and
+		// the poll sync handles both, without an edit event.
+		tc.rememberPollMessage(msg)
+		return tc.syncPoll(ctx, ids.GetMessageIDFromMessage(msg), &media.Poll, &media.Results)
+	}
 	// Channels don't use edits to signal reactions, and when sending the first reaction they send a no-op edit
 	// with an empty reactions list, which would confuse the handle method. Therefore, just don't sync reactions
 	// on channel message edits.

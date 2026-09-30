@@ -100,6 +100,10 @@ type TelegramClient struct {
 	isPremiumCache            atomic.Bool
 
 	recentMessageRooms *exsync.RingBuffer[networkid.MessageID, networkid.PortalKey]
+	// pollMessages maps poll IDs to their messages, for poll updates that don't say which message they're for.
+	pollMessages *exsync.RingBuffer[int64, networkid.MessageID]
+	// pollSignatures holds the last vote counts that were synced for each poll message.
+	pollSignatures sync.Map
 
 	telegramFmtParams *telegramfmt.FormatParams
 	matrixParser      *matrixfmt.HTMLParser
@@ -187,6 +191,7 @@ func NewTelegramClient(ctx context.Context, tc *TelegramConnector, login *bridge
 		stickerPacksByID:   map[int64]*stickerPackCache{},
 
 		recentMessageRooms: exsync.NewRingBuffer[networkid.MessageID, networkid.PortalKey](32),
+		pollMessages:       exsync.NewRingBuffer[int64, networkid.MessageID](256),
 
 		clientInitialized: exsync.NewEvent(),
 		clientDone:        exsync.NewEvent(),
