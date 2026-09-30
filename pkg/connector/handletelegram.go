@@ -665,10 +665,28 @@ func (tc *TelegramClient) handleServiceMessage(ctx context.Context, msg *tg.Mess
 		})
 		return resultToError(res)
 	default:
-		log.Warn().
-			Type("action_type", action).
-			Msg("ignoring unknown action type")
-		return nil
+		text, ok := serviceMessageText(tc.serviceTextEnv(ctx), action)
+		if !ok {
+			if _, bridged := serviceActionsBridgedElsewhere[action.TypeID()]; !bridged {
+				log.Warn().
+					Type("action_type", action).
+					Msg("ignoring unknown action type")
+			}
+			return nil
+		}
+		res := tc.main.Bridge.QueueRemoteEvent(tc.userLogin, &simplevent.Message[any]{
+			EventMeta: eventMeta.WithType(bridgev2.RemoteEventMessage),
+			ID:        ids.GetMessageIDFromMessage(msg),
+			ConvertMessageFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data any) (*bridgev2.ConvertedMessage, error) {
+				return &bridgev2.ConvertedMessage{
+					Parts: []*bridgev2.ConvertedMessagePart{{
+						Type:    event.EventMessage,
+						Content: &event.MessageEventContent{MsgType: event.MsgNotice, Body: text},
+					}},
+				}, nil
+			},
+		})
+		return resultToError(res)
 	}
 }
 
