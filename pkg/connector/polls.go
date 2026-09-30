@@ -146,8 +146,14 @@ func telegramPollToMatrix(poll *tg.Poll) (*event.MessageEventContent, map[string
 		htmlAnswers.WriteString("<li>" + event.TextToHTML(text) + "</li>")
 	}
 
-	body := fmt.Sprintf("Poll: %s\n\n%s", question, strings.Join(textAnswers, "\n"))
-	formattedBody := fmt.Sprintf("<p><strong>Poll</strong>: %s</p><ol>%s</ol>", event.TextToHTML(question), htmlAnswers.String())
+	label := "Poll"
+	if poll.Quiz {
+		// Matrix polls have no right answer; the question says it's a quiz, and the end says the answer.
+		label = "Quiz"
+		question = "Quiz: " + question
+	}
+	body := fmt.Sprintf("%s: %s\n\n%s", label, poll.Question.Text, strings.Join(textAnswers, "\n"))
+	formattedBody := fmt.Sprintf("<p><strong>%s</strong>: %s</p><ol>%s</ol>", label, event.TextToHTML(poll.Question.Text), htmlAnswers.String())
 	if poll.Closed {
 		body += "\n\n(This poll is closed.)"
 		formattedBody += "<p>(This poll is closed.)</p>"
@@ -215,6 +221,24 @@ func pollTopAnswers(poll *tg.Poll, results *tg.PollResults) []string {
 	return top
 }
 
+// quizCorrectAnswer is the text of a quiz's right answer, once Telegram has told it (after voting or at the end).
+func quizCorrectAnswer(poll *tg.Poll, results *tg.PollResults) string {
+	if poll == nil || !poll.Quiz || results == nil {
+		return ""
+	}
+	for _, voters := range results.Results {
+		if !voters.Correct {
+			continue
+		}
+		for _, rawAnswer := range poll.Answers {
+			if answer, ok := rawAnswer.(*tg.PollAnswer); ok && bytes.Equal(answer.Option, voters.Option) {
+				return answer.Text.Text
+			}
+		}
+	}
+	return ""
+}
+
 // pollEndContent is the content of the org.matrix.msc3381.poll.end event for a poll that was closed on Telegram.
 func pollEndContent(pollEventID id.EventID, poll *tg.Poll, results *tg.PollResults) (*event.MessageEventContent, map[string]any) {
 	text := "The poll has ended."
@@ -224,6 +248,12 @@ func pollEndContent(pollEventID id.EventID, poll *tg.Poll, results *tg.PollResul
 		text += " Top answer: " + top[0]
 	default:
 		text += " Top answers: " + strings.Join(top, ", ")
+	}
+	if correct := quizCorrectAnswer(poll, results); correct != "" {
+		text += " Correct answer: " + correct
+		if results.Solution != "" {
+			text += ". " + results.Solution
+		}
 	}
 	return &event.MessageEventContent{
 			MsgType:   event.MsgText,

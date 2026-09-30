@@ -284,3 +284,32 @@ func TestPollFromMessages(t *testing.T) {
 		t.Error("a missing message must be an error")
 	}
 }
+
+func TestQuizPoll(t *testing.T) {
+	poll := &tg.Poll{
+		Quiz:     true,
+		Question: tg.TextWithEntities{Text: "Capital of France?"},
+		Answers: []tg.PollAnswerClass{
+			&tg.PollAnswer{Text: tg.TextWithEntities{Text: "Lyon"}, Option: []byte("0")},
+			&tg.PollAnswer{Text: tg.TextWithEntities{Text: "Paris"}, Option: []byte("1")},
+		},
+	}
+	content, extra := telegramPollToMatrix(poll)
+	start := extra["org.matrix.msc3381.poll.start"].(map[string]any)
+	assert.Equal(t, "Quiz: Capital of France?", start["question"].(map[string]any)["org.matrix.msc1767.text"])
+	assert.True(t, strings.HasPrefix(content.Body, "Quiz: Capital of France?"))
+
+	results := &tg.PollResults{
+		Results: []tg.PollAnswerVoters{
+			{Option: []byte("0"), Voters: 3},
+			{Option: []byte("1"), Voters: 1, Correct: true},
+		},
+		Solution: "It has been since 987.",
+	}
+	end, _ := pollEndContent("$poll", poll, results)
+	assert.Equal(t, "The poll has ended. Top answer: Lyon Correct answer: Paris. It has been since 987.", end.Body)
+
+	poll.Quiz = false
+	end, _ = pollEndContent("$poll", poll, results)
+	assert.NotContains(t, end.Body, "Correct answer", "an ordinary poll has no right answer")
+}
