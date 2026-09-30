@@ -32,7 +32,6 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +44,6 @@ import (
 	"go.mau.fi/util/jsontime"
 	"go.mau.fi/util/variationselector"
 	"go.mau.fi/webp"
-	"golang.org/x/exp/maps"
 	_ "golang.org/x/image/webp"
 	"golang.org/x/net/html"
 	"maunium.net/go/mautrix/bridgev2"
@@ -1186,11 +1184,22 @@ func (tc *TelegramClient) HandleRoomTag(ctx context.Context, msg *bridgev2.Matri
 		return fmt.Errorf("topics can't be pinned for yourself")
 	}
 
-	_, err = tc.client.API().MessagesToggleDialogPin(ctx, &tg.MessagesToggleDialogPinRequest{
-		Pinned: slices.Contains(maps.Keys(msg.Content.Tags), event.RoomTagFavourite),
-		Peer:   &tg.InputDialogPeer{Peer: inputPeer},
-	})
-	return err
+	actions := getRoomTagActions(msg, tc.main.Config.ArchiveTag)
+	if actions.Pin != nil {
+		_, err = tc.client.API().MessagesToggleDialogPin(ctx, &tg.MessagesToggleDialogPinRequest{
+			Pinned: *actions.Pin,
+			Peer:   &tg.InputDialogPeer{Peer: inputPeer},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if actions.Archive != nil {
+		if err = tc.setArchived(ctx, inputPeer, *actions.Archive); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (tc *TelegramClient) HandleMatrixDeleteChat(ctx context.Context, chat *bridgev2.MatrixDeleteChat) error {

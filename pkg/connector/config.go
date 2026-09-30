@@ -27,6 +27,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/bridgeconfig"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/media"
@@ -109,6 +110,7 @@ type TelegramConfig struct {
 	PresenceOnlineWhileActive            bool                `yaml:"presence_online_while_active"`
 	PresenceActiveTimeoutSeconds         int                 `yaml:"presence_active_timeout_seconds"`
 	StickerPackSync                      bool                `yaml:"sticker_pack_sync"`
+	ArchiveTag                           event.RoomTag       `yaml:"archive_tag"`
 	displaynameTemplate                  *template.Template  `yaml:"-"`
 }
 
@@ -210,6 +212,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "presence_online_while_active")
 	helper.Copy(up.Int, "presence_active_timeout_seconds")
 	helper.Copy(up.Bool, "sticker_pack_sync")
+	helper.Copy(up.Str|up.Null, "archive_tag")
 }
 
 func (tc *TelegramConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {
@@ -226,6 +229,7 @@ func (tc *TelegramConnector) GetConfig() (example string, data any, upgrader up.
 			{"max_member_count"},
 			{"presence_bridging"},
 			{"sticker_pack_sync"},
+			{"archive_tag"},
 		},
 		Base: ExampleConfig,
 	}
@@ -240,6 +244,9 @@ func (tc *TelegramConnector) ValidateConfig() error {
 	}
 	if !slices.Contains([]string{"disable", "gif", "png", "webp", "webm"}, tc.Config.AnimatedSticker.Target) {
 		return fmt.Errorf("unsupported animated sticker target: %s", tc.Config.AnimatedSticker.Target)
+	}
+	if tc.Config.ArchiveTag == event.RoomTagFavourite {
+		return fmt.Errorf("archive_tag can't be m.favourite, pinned chats already use it")
 	}
 	return nil
 }

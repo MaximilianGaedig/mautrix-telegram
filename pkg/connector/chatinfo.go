@@ -339,8 +339,12 @@ func (tc *TelegramClient) fillUserLocalMeta(info *bridgev2.ChatInfo, dialog user
 	} else {
 		info.UserLocal.MutedUntil = &bridgev2.Unmuted
 	}
-	if dialog.GetPinned() {
-		info.UserLocal.Tag = ptr.Ptr(event.RoomTagFavourite)
+	folderID := 0
+	if d, ok := dialog.(*tg.Dialog); ok {
+		folderID, _ = d.GetFolderID()
+	}
+	if tag := dialogRoomTag(tc.main.Config.ArchiveTag, folderID, dialog.GetPinned()); tag != "" {
+		info.UserLocal.Tag = ptr.Ptr(tag)
 	}
 }
 

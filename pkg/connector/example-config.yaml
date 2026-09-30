@@ -161,3 +161,10 @@ presence_active_timeout_seconds: 300
 # an image pack (im.ponies.room_emotes) in your personal filtering space, without running
 # `emoji-pack download`. Installs and uninstalls sync live. Needs personal filtering spaces.
 sticker_pack_sync: true
+
+# Tag to apply to archived chats on Telegram (the archive folder), and the tag whose
+# adding or removing in Matrix archives or unarchives the chat on Telegram.
+# Leave empty to not bridge the archive at all.
+# Set to m.lowpriority to move archived chats to low priority.
+# Pinned chats always use m.favourite, so this can't be m.favourite.
+archive_tag:
