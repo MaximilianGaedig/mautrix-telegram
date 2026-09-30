@@ -48,6 +48,9 @@ type GhostMetadata struct {
 
 	ContactSource   int64 `json:"contact_source,omitempty"`
 	SourceIsContact bool  `json:"source_is_contact,omitempty"`
+
+	// BioFetched is when the bio was last requested, so it is fetched at most once a day.
+	BioFetched jsontime.Unix `json:"bio_fetched,omitempty"`
 }
 
 func (gm *GhostMetadata) IsMin() bool {

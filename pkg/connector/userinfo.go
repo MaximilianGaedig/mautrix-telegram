@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/jsontime"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/ids"
@@ -276,13 +279,24 @@ func (tc *TelegramClient) wrapUserInfo(ctx context.Context, u tg.UserClass, ghos
 	if user.Min && !oldMeta.IsMin() && ghost.Name != "" {
 		namePtr = nil
 	}
+	var extraProfile database.ExtraProfile
+	var bioAttempted bool
+	now := time.Now()
+	if bioDue(oldMeta, user, now) && tc.claimBioFetch(user.ID, now) {
+		extraProfile, bioAttempted = bioUpdate(ctx, tc.client.API(), oldMeta, user, ghost.ExtraProfile, now)
+	}
 	return &bridgev2.UserInfo{
-		IsBot:       &user.Bot,
-		Name:        namePtr,
-		Avatar:      avatar,
-		Identifiers: identifiers,
+		IsBot:        &user.Bot,
+		Name:         namePtr,
+		Avatar:       avatar,
+		Identifiers:  identifiers,
+		ExtraProfile: extraProfile,
 		ExtraUpdates: func(ctx context.Context, ghost *bridgev2.Ghost) (changed bool) {
 			meta := ghost.Metadata.(*GhostMetadata)
+			if bioAttempted {
+				meta.BioFetched = jsontime.U(now)
+				changed = true
+			}
 			if !user.Min {
 				changed = changed || meta.IsPremium != user.Premium || meta.Deleted != user.Deleted || meta.IsMin()
 				meta.IsPremium = user.Premium

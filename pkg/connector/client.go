@@ -99,6 +99,9 @@ type TelegramClient struct {
 	availableReactionsList    []string
 	isPremiumCache            atomic.Bool
 
+	bioClaimLock sync.Mutex
+	bioClaims    map[int64]time.Time
+
 	recentMessageRooms *exsync.RingBuffer[networkid.MessageID, networkid.PortalKey]
 	// pollMessages maps poll IDs to their messages, for poll updates that don't say which message they're for.
 	pollMessages *exsync.RingBuffer[int64, networkid.MessageID]
