@@ -26,6 +26,7 @@ import (
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/ids"
+	"go.mau.fi/mautrix-telegram/pkg/gotd/bin"
 	"go.mau.fi/mautrix-telegram/pkg/gotd/tg"
 )
 
@@ -244,4 +245,42 @@ func TestPollResponseContent(t *testing.T) {
 	content, extra := pollResponseContent("$poll:example.com", nil)
 	assert.Equal(t, "$poll:example.com", string(content.RelatesTo.EventID))
 	assert.Equal(t, map[string]any{"answers": []string{}}, extra["org.matrix.msc3381.poll.response"])
+}
+
+func TestClosePollMedia(t *testing.T) {
+	media := closePollMedia(42)
+	if media.Poll.ID != 42 || !media.Poll.Closed {
+		t.Fatalf("poll = %+v", media.Poll)
+	}
+	// The flags are what Telegram reads: an unset closed flag leaves the poll open.
+	var buf bin.Buffer
+	if err := media.Encode(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var decoded tg.InputMediaPoll
+	if err := decoded.Decode(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Poll.Closed || decoded.Poll.ID != 42 {
+		t.Errorf("encoded poll = %+v", decoded.Poll)
+	}
+}
+
+func TestPollFromMessages(t *testing.T) {
+	poll := tg.Poll{ID: 7}
+	messages := []tg.MessageClass{
+		&tg.Message{ID: 1, Media: &tg.MessageMediaPoll{Poll: tg.Poll{ID: 1}}},
+		&tg.Message{ID: 2, Media: &tg.MessageMediaPoll{Poll: poll}},
+		&tg.Message{ID: 3},
+	}
+	got, err := pollFromMessages(messages, 2)
+	if err != nil || got.ID != 7 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if _, err = pollFromMessages(messages, 3); err == nil {
+		t.Error("a message without a poll must be an error")
+	}
+	if _, err = pollFromMessages(messages, 4); err == nil {
+		t.Error("a missing message must be an error")
+	}
 }

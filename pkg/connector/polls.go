@@ -776,3 +776,85 @@ func (tc *TelegramClient) queuePollEnd(portalKey networkid.PortalKey, pollID net
 		},
 	})
 }
+
+var _ bridgev2.PollEndHandlingNetworkAPI = (*TelegramClient)(nil)
+
+// pollFromMessages finds the poll carried by message msgID among a getMessages result.
+func pollFromMessages(messages []tg.MessageClass, msgID int) (*tg.Poll, error) {
+	for _, m := range messages {
+		msg, ok := m.(*tg.Message)
+		if !ok || msg.ID != msgID {
+			continue
+		}
+		media, ok := msg.Media.(*tg.MessageMediaPoll)
+		if !ok {
+			return nil, fmt.Errorf("message %d is not a poll", msgID)
+		}
+		return &media.Poll, nil
+	}
+	return nil, fmt.Errorf("poll message %d not found", msgID)
+}
+
+// closePollMedia is what stops a poll: Telegram only reads the poll's ID and the closed flag, the way
+// tdlib's stopPoll sends it.
+func closePollMedia(pollID int64) *tg.InputMediaPoll {
+	poll := tg.Poll{ID: pollID}
+	poll.SetClosed(true)
+	return &tg.InputMediaPoll{Poll: poll}
+}
+
+func (tc *TelegramClient) HandleMatrixPollEnd(ctx context.Context, msg *bridgev2.MatrixPollEnd) error {
+	tc.markActive(ctx)
+	if err := tc.clientInitialized.Wait(ctx); err != nil {
+		return err
+	}
+	meta, ok := msg.Poll.Metadata.(*MessageMetadata)
+	if !ok || meta.Poll == nil {
+		return fmt.Errorf("%w: the poll was bridged before polls were supported", bridgev2.ErrUnknownPoll)
+	} else if meta.Poll.Closed {
+		return nil
+	}
+	peerType, peerID, _, err := ids.ParsePortalID(msg.Portal.ID)
+	if err != nil {
+		return fmt.Errorf("failed to parse portal ID: %w", err)
+	}
+	_, telegramMsgID, err := ids.ParseMessageID(msg.Poll.ID)
+	if err != nil {
+		return err
+	}
+	// The poll's Telegram ID isn't kept with the message, so read it from the message itself.
+	messages, err := tc.getMessagesByID(ctx, peerType, peerID, telegramMsgID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch poll message: %w", err)
+	}
+	poll, err := pollFromMessages(messages.GetMessages(), telegramMsgID)
+	if err != nil {
+		return err
+	}
+	peer, _, err := tc.inputPeerForPortalID(ctx, msg.Portal.ID)
+	if err != nil {
+		return err
+	}
+	// Mark it closed first: Telegram echoes the close back as a poll update, which must not end the
+	// poll in Matrix a second time.
+	meta.Poll.Closed = true
+	if err = tc.main.Bridge.DB.Message.Update(ctx, msg.Poll); err != nil {
+		return fmt.Errorf("failed to save poll state: %w", err)
+	}
+	err = withFloodWait(ctx, func() error {
+		_, err := tc.client.API().MessagesEditMessage(ctx, &tg.MessagesEditMessageRequest{
+			Peer:  peer,
+			ID:    telegramMsgID,
+			Media: closePollMedia(poll.ID),
+		})
+		return err
+	})
+	if err != nil {
+		meta.Poll.Closed = false
+		if dbErr := tc.main.Bridge.DB.Message.Update(ctx, msg.Poll); dbErr != nil {
+			zerolog.Ctx(ctx).Err(dbErr).Msg("Failed to reset poll state after failing to close it")
+		}
+		return tc.humaniseSendError(err)
+	}
+	return nil
+}
