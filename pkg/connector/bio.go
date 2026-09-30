@@ -10,8 +10,9 @@ import (
 	"go.mau.fi/mautrix-telegram/pkg/gotd/tg"
 )
 
-// bioProfileKey is the extra profile field a ghost's Telegram bio is put in.
-const bioProfileKey = "im.mxg.bio"
+// bioProfileKey is the extra profile field a ghost's Telegram bio is put in: MSC4440's biography field
+// (unstable name), which Matrix clients read the same for every network.
+const bioProfileKey = "gay.fomx.biography"
 
 // bioRefreshInterval is how often at most a user's bio is fetched. Bios come from the full user, which is a
 // separate (and rate limited) request per user, so they are not fetched on every ghost sync.
@@ -39,7 +40,8 @@ func bioDue(meta *GhostMetadata, user *tg.User, now time.Time) bool {
 func bioProfile(about string, current database.ExtraProfile) database.ExtraProfile {
 	profile := database.ExtraProfile{}
 	if about != "" {
-		if err := profile.Set(bioProfileKey, about); err != nil {
+		// MSC4440 keeps the text in extensible events' m.text form.
+		if err := profile.Set(bioProfileKey, map[string]any{"m.text": []map[string]string{{"body": about}}}); err != nil {
 			return nil
 		}
 		return profile

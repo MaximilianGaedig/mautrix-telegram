@@ -72,7 +72,7 @@ func rawBio(t *testing.T, profile database.ExtraProfile) string {
 
 func TestBioProfile(t *testing.T) {
 	t.Run("bio set", func(t *testing.T) {
-		assert.Equal(t, `"Hi, I make things"`, rawBio(t, bioProfile("Hi, I make things", nil)))
+		assert.JSONEq(t, `{"m.text":[{"body":"Hi, I make things"}]}`, rawBio(t, bioProfile("Hi, I make things", nil)))
 	})
 	t.Run("bio cleared when there was one", func(t *testing.T) {
 		current := database.ExtraProfile{bioProfileKey: json.RawMessage(`"old"`)}
@@ -94,7 +94,7 @@ func TestBioUpdateFetchesOncePerDay(t *testing.T) {
 
 	profile, attempted := bioUpdate(context.Background(), api, meta, user, nil, bioNow)
 	assert.True(t, attempted)
-	assert.Equal(t, `"Hello"`, rawBio(t, profile))
+	assert.JSONEq(t, `{"m.text":[{"body":"Hello"}]}`, rawBio(t, profile))
 	require.Len(t, api.asked, 1)
 	assert.Equal(t, &tg.InputUser{UserID: 42, AccessHash: 777}, api.asked[0])
 
