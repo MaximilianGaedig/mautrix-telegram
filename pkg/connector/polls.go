@@ -256,13 +256,13 @@ func pollEndContent(pollEventID id.EventID, poll *tg.Poll, results *tg.PollResul
 		}
 	}
 	return &event.MessageEventContent{
-			MsgType:   event.MsgText,
-			Body:      text,
-			RelatesTo: &event.RelatesTo{Type: event.RelReference, EventID: pollEventID},
-		}, map[string]any{
-			"org.matrix.msc3381.poll.end": map[string]any{},
-			"org.matrix.msc1767.text":     text,
-		}
+		MsgType:   event.MsgText,
+		Body:      text,
+		RelatesTo: &event.RelatesTo{Type: event.RelReference, EventID: pollEventID},
+	}, map[string]any{
+		"org.matrix.msc3381.poll.end": map[string]any{},
+		"org.matrix.msc1767.text":     text,
+	}
 }
 
 // pollResponseContent is the content of an org.matrix.msc3381.poll.response event. An empty list retracts the vote.
@@ -271,10 +271,10 @@ func pollResponseContent(pollEventID id.EventID, answerIDs []string) (*event.Mes
 		answerIDs = []string{}
 	}
 	return &event.MessageEventContent{
-			RelatesTo: &event.RelatesTo{Type: event.RelReference, EventID: pollEventID},
-		}, map[string]any{
-			"org.matrix.msc3381.poll.response": map[string]any{"answers": answerIDs},
-		}
+		RelatesTo: &event.RelatesTo{Type: event.RelReference, EventID: pollEventID},
+	}, map[string]any{
+		"org.matrix.msc3381.poll.response": map[string]any{"answers": answerIDs},
+	}
 }
 
 // matrixPollToTelegram converts a Matrix poll start event to what Telegram needs to create the poll. The map is
@@ -287,9 +287,9 @@ func matrixPollToTelegram(content *event.PollStartEventContent) (*tg.InputMediaP
 	} else if utf8.RuneCountInString(question) > maxPollQuestionLength {
 		return nil, nil, fmt.Errorf("the poll question is longer than Telegram's limit of %d characters", maxPollQuestionLength)
 	} else if len(start.Answers) < minPollAnswers {
-		return nil, nil, fmt.Errorf("Telegram polls need at least %d answers", minPollAnswers)
+		return nil, nil, fmt.Errorf("polls on Telegram need at least %d answers", minPollAnswers)
 	} else if len(start.Answers) > maxPollAnswers {
-		return nil, nil, fmt.Errorf("Telegram polls can have at most %d answers", maxPollAnswers)
+		return nil, nil, fmt.Errorf("polls on Telegram can have at most %d answers", maxPollAnswers)
 	}
 	options := make(map[string][]byte, len(start.Answers))
 	answers := make([]tg.PollAnswerClass, len(start.Answers))
