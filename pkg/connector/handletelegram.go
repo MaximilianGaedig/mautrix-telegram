@@ -1627,44 +1627,6 @@ func (tc *TelegramClient) onChatDefaultBannedRights(ctx context.Context, entitie
 	return resultToError(res)
 }
 
-func (tc *TelegramClient) onPeerBlocked(ctx context.Context, e tg.Entities, update *tg.UpdatePeerBlocked) error {
-	// TODO fix this after adding storage for block status (getDMPowerLevels also needs updating)
-	if true {
-		return nil
-	}
-	var userID networkid.UserID
-	if peer, ok := update.PeerID.(*tg.PeerUser); ok {
-		userID = ids.MakeUserID(peer.UserID)
-	} else {
-		zerolog.Ctx(ctx).Warn().Type("peer_type", update.PeerID).Msg("Unexpected peer type in peer blocked update")
-		return nil
-	}
-
-	// Update the ghost
-	ghost, err := tc.main.Bridge.GetGhostByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	// Find portals that are DMs with the user
-	res := tc.main.Bridge.QueueRemoteEvent(tc.userLogin, &simplevent.ChatResync{
-		ChatInfo: &bridgev2.ChatInfo{
-			Members: &bridgev2.ChatMemberList{
-				PowerLevels: tc.getDMPowerLevels(ghost),
-			},
-			CanBackfill: true,
-		},
-		EventMeta: simplevent.EventMeta{
-			Type:      bridgev2.RemoteEventChatResync,
-			PortalKey: tc.makePortalKeyFromPeer(update.PeerID, 0),
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("tg_event", "updatePeerBlocked")
-			},
-		},
-	})
-	return resultToError(res)
-}
-
 func (tc *TelegramClient) onChat(ctx context.Context, e tg.Entities, update *tg.UpdateChat) error {
 	return nil
 }
