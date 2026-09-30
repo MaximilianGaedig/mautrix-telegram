@@ -543,6 +543,12 @@ func (tc *TelegramClient) GetChatInfo(ctx context.Context, portal *bridgev2.Port
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrChatInfoUnavailable, err)
 	}
+	// The pins are part of what a chat looks like, but not worth failing the rest of its info over.
+	if pinned, err := tc.pinnedMessages(ctx, portal.ID); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get pinned messages")
+	} else {
+		info.PinnedMessages = &pinned
+	}
 	return info, nil
 }
 
