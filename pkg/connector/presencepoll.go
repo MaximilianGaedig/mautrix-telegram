@@ -214,7 +214,6 @@ func (tc *TelegramClient) groupMemberIDs(ctx context.Context, contacts map[int64
 // pollUserStatuses fetches statuses of users that aren't contacts and returns how many were
 // requested, and how long Telegram asked to wait before asking again, if it did.
 func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64, contacts map[int64]struct{}) (int, time.Duration) {
-	now := time.Now()
 	hashes := make(map[int64]int64, len(userIDs))
 	var wanted []int64
 	for _, id := range userIDs {
@@ -228,31 +227,37 @@ func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64,
 		hashes[id] = accessHash
 		wanted = append(wanted, id)
 	}
-	for start := 0; start < len(wanted); start += presencePollUsersBatch {
-		end := min(start+presencePollUsersBatch, len(wanted))
-		users, wait, err := fetchUnskipped(wanted[start:end], &tc.presenceSkips, now, func(chunk []int64) ([]tg.UserClass, error) {
-			inputs := make([]tg.InputUserClass, len(chunk))
-			for i, id := range chunk {
-				inputs[i] = &tg.InputUser{UserID: id, AccessHash: hashes[id]}
-			}
-			return tc.client.API().UsersGetUsers(ctx, inputs)
-		})
-		for _, u := range users {
-			if user, ok := u.(*tg.User); ok {
-				if status, ok := user.GetStatus(); ok {
-					tc.handleUserStatus(user.ID, status)
-				}
-			}
+	var rejection error
+	users, rejected, wait, err := fetchUnskipped(wanted, presencePollUsersBatch, presenceBisectExtra, &tc.presenceSkips, time.Now(), func(chunk []int64) ([]tg.UserClass, error) {
+		inputs := make([]tg.InputUserClass, len(chunk))
+		for i, id := range chunk {
+			inputs[i] = &tg.InputUser{UserID: id, AccessHash: hashes[id]}
 		}
-		if err != nil {
-			if ctx.Err() == nil {
-				zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get user statuses")
-			}
-			return len(wanted), 0
+		users, err := tc.client.API().UsersGetUsers(ctx, inputs)
+		if rejectsInput(err) {
+			rejection = err
 		}
-		if wait > 0 {
-			return len(wanted), wait
+		return users, err
+	})
+	// Whatever was answered before a flood wait or an error is still worth having.
+	for _, u := range users {
+		if user, ok := u.(*tg.User); ok {
+			if status, ok := user.GetStatus(); ok {
+				tc.handleUserStatus(user.ID, status)
+			}
 		}
 	}
-	return len(wanted), 0
+	if len(rejected) > 0 {
+		// Say who and why: without this a user whose status never shows up leaves no trace.
+		zerolog.Ctx(ctx).Warn().Err(rejection).
+			Ints64("user_ids", rejected).
+			Dur("skip", presenceBadUserSkip).
+			Msg("Telegram rejected the status request for these users, leaving them out for a while")
+	}
+	if err != nil && ctx.Err() == nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get user statuses")
+	} else if wait > 0 {
+		zerolog.Ctx(ctx).Debug().Dur("wait", wait).Msg("Telegram asked to poll user statuses less often")
+	}
+	return len(wanted), wait
 }

@@ -27,11 +27,19 @@ const (
 	// How long a user that Telegram rejected on its own is left out of the polls. Their access hash is
 	// stale or the account is gone, and neither fixes itself within a poll round.
 	presenceBadUserSkip = time.Hour
-	// The most requests one batch may spend on finding its bad users. One bad user among 100 costs at
-	// most 1 + 2*ceil(log2(100)) = 15; the budget leaves room for a few more, and whatever it cannot
-	// settle is simply asked about again in the next round instead of hammering Telegram.
-	presenceBisectBudget = 32
+	// The most requests one status poll may spend, on top of its one request per batch, on finding the
+	// users Telegram rejects. Finding one among 100 takes 2*ceil(log2(100)) = 14 of them, so this
+	// settles two a poll; whoever is left undecided is asked about again the next time their batch comes
+	// up, with the ones found by then already left out, instead of hammering Telegram now.
+	presenceBisectExtra = 30
 )
+
+// rejectsInput reports whether err is Telegram refusing the request for what was asked (a 400: a stale
+// access hash, a deleted account). Only that says anything about the inputs: a 500, a timeout or a lost
+// authorisation fails whoever is asked about, and splitting on those would blame users at random.
+func rejectsInput(err error) bool {
+	return tgerr.IsCode(err, 400)
+}
 
 // fetchIsolatingBad asks fetch for all items, and when Telegram rejects the request it splits the
 // batch in two and asks for each half, down to single items, so that one invalid input costs only
@@ -42,8 +50,8 @@ const (
 // again; budget caps it in any case. Items still undecided when the budget runs out are returned in
 // neither results nor bad.
 //
-// It stops at once, returning the wait, on a flood wait, and with the error on anything that isn't an
-// answer from Telegram (a dropped connection or a cancelled context says nothing about the inputs).
+// It stops at once, returning the wait, on a flood wait, and with the error on anything that isn't
+// Telegram rejecting the inputs (see rejectsInput).
 func fetchIsolatingBad[T, R any](items []T, budget int, fetch func([]T) ([]R, error)) (results []R, bad []T, wait time.Duration, err error) {
 	requests := 0
 	var run func(chunk []T) bool
@@ -61,10 +69,11 @@ func fetchIsolatingBad[T, R any](items []T, budget int, fetch func([]T) ([]R, er
 			return true
 		}
 		if d, isFlood := tgerr.AsFloodWait(fetchErr); isFlood {
-			wait = d
+			// Never zero: the caller tells a flood wait from success by the wait alone.
+			wait = max(d, time.Second)
 			return false
 		}
-		if _, isRPC := tgerr.As(fetchErr); !isRPC {
+		if !rejectsInput(fetchErr) {
 			err = fetchErr
 			return false
 		}
@@ -103,21 +112,46 @@ func (s *badUserSkips) add(id int64, now time.Time) {
 	if s.until == nil {
 		s.until = map[int64]time.Time{}
 	}
+	// Someone who has left the groups is never asked about again, so their entry would never be
+	// looked up and dropped. Clearing what has run out here keeps the list to the users rejected
+	// within the last presenceBadUserSkip.
+	for other, until := range s.until {
+		if !now.Before(until) {
+			delete(s.until, other)
+		}
+	}
 	s.until[id] = now.Add(presenceBadUserSkip)
 }
 
-// fetchUnskipped asks fetch about ids in one go, leaving out the users on the skip list and adding
-// the ones Telegram rejects on their own to it.
-func fetchUnskipped[R any](ids []int64, skips *badUserSkips, now time.Time, fetch func([]int64) ([]R, error)) ([]R, time.Duration, error) {
+// fetchUnskipped asks fetch about ids in batches of batchSize, leaving out the users on the skip list
+// and adding the ones Telegram rejects on their own to it. It returns those newly rejected users too.
+//
+// Cost: one request per batch, plus at most extra more in total for splitting the batches Telegram
+// rejects, so ceil(len(ids)/batchSize) + extra requests at the very most. It stops at the first flood
+// wait or error, returning what it has by then.
+func fetchUnskipped[R any](
+	ids []int64, batchSize, extra int, skips *badUserSkips, now time.Time, fetch func([]int64) ([]R, error),
+) (results []R, rejected []int64, wait time.Duration, err error) {
 	live := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		if !skips.skipped(id, now) {
 			live = append(live, id)
 		}
 	}
-	results, bad, wait, err := fetchIsolatingBad(live, presenceBisectBudget, fetch)
-	for _, id := range bad {
-		skips.add(id, now)
+	for start := 0; start < len(live) && wait == 0 && err == nil; start += batchSize {
+		requests := 0
+		var got []R
+		var bad []int64
+		got, bad, wait, err = fetchIsolatingBad(live[start:min(start+batchSize, len(live))], 1+extra, func(chunk []int64) ([]R, error) {
+			requests++
+			return fetch(chunk)
+		})
+		extra -= requests - 1
+		results = append(results, got...)
+		for _, id := range bad {
+			skips.add(id, now)
+		}
+		rejected = append(rejected, bad...)
 	}
-	return results, wait, err
+	return
 }
