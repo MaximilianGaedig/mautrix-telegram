@@ -225,7 +225,7 @@ func (tc *TelegramClient) pollSponsoredMessage(ctx context.Context, portal *brid
 	return nil
 }
 
-func (tc *TelegramClient) transferMediaToTelegram(ctx context.Context, content *event.MessageEventContent, sticker, forceRetry, forceDocument bool) (tg.InputMediaClass, error) {
+func (tc *TelegramClient) transferMediaToTelegram(ctx context.Context, content *event.MessageEventContent, sticker, forceRetry, forceDocument, spoiler bool) (tg.InputMediaClass, error) {
 	var upload tg.InputFileClass
 	info := content.GetInfo()
 	if sticker {
@@ -330,8 +330,42 @@ func (tc *TelegramClient) transferMediaToTelegram(ctx context.Context, content *
 		return nil, fmt.Errorf("failed to download media from Matrix and upload media to Telegram: %w", err)
 	}
 
+	return makeUploadedMedia(upload, content, info, filename, sticker, forceDocument, spoiler), nil
+}
+
+// matrixMediaHasSpoiler reports whether a Matrix media event asks for its media to be hidden until
+// tapped. It reads the same markers that the Telegram -> Matrix direction writes (see the spoiler
+// handling in tomatrix.go), so a spoiler survives a round trip and other clients' spoilers work too.
+func matrixMediaHasSpoiler(raw map[string]any) bool {
+	// An edit carries the replacement media in m.new_content, and that is the content being sent.
+	if newContent, ok := raw["m.new_content"].(map[string]any); ok {
+		raw = newContent
+	}
+	if spoiler, _ := raw["page.codeberg.everypizza.msc4193.spoiler"].(bool); spoiler {
+		return true
+	}
+	if spoiler, _ := raw["m.spoiler"].(bool); spoiler {
+		return true
+	}
+	// Telegram only has one way to hide media, so every kind of MSC3725 content warning
+	// (spoiler, nsfw, ...) becomes a Telegram spoiler rather than being shown unhidden.
+	if warning, ok := raw["town.robin.msc3725.content_warning"].(map[string]any); ok && len(warning) > 0 {
+		return true
+	}
+	if info, ok := raw["info"].(map[string]any); ok {
+		if spoiler, _ := info["fi.mau.telegram.spoiler"].(bool); spoiler {
+			return true
+		}
+	}
+	return false
+}
+
+// makeUploadedMedia wraps an already uploaded file in the Telegram media type matching the Matrix
+// message. It is separate from the upload so that the choice of type, attributes and flags can be
+// tested without talking to Telegram.
+func makeUploadedMedia(upload tg.InputFileClass, content *event.MessageEventContent, info *event.FileInfo, filename string, sticker, forceDocument, spoiler bool) tg.InputMediaClass {
 	if !forceDocument && content.MsgType == event.MsgImage && (info.MimeType == "image/jpeg" || info.MimeType == "image/png") {
-		return &tg.InputMediaUploadedPhoto{File: upload}, nil
+		return &tg.InputMediaUploadedPhoto{File: upload, Spoiler: spoiler && !sticker}
 	}
 
 	var attributes []tg.DocumentAttributeClass
@@ -367,11 +401,17 @@ func (tc *TelegramClient) transferMediaToTelegram(ctx context.Context, content *
 		})
 	}
 
+	// Telegram only blurs videos and GIFs among documents. Anything else sent as a document
+	// (files, audio, images sent as files, stickers) has no preview to hide.
+	isGIF := info.MauGIF || (content.MsgType == event.MsgImage && info.MimeType == "image/gif")
+	canSpoiler := !sticker && !forceDocument && (content.MsgType == event.MsgVideo || isGIF)
+
 	return &tg.InputMediaUploadedDocument{
 		File:       upload,
 		MimeType:   cmp.Or(info.MimeType, "application/octet-stream"),
 		Attributes: attributes,
-	}, nil
+		Spoiler:    spoiler && canSpoiler,
+	}
 }
 
 func (tc *TelegramClient) humaniseSendError(err error) error {
@@ -509,14 +549,14 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 			ReplyTo:  replyTo,
 			RandomID: randomID,
 		}
-		mediaReq.Media, err = tc.transferMediaToTelegram(ctx, msg.Content, true, false, true)
+		mediaReq.Media, err = tc.transferMediaToTelegram(ctx, msg.Content, true, false, true, false)
 		if err != nil {
 			return nil, err
 		}
 		updates, err = tc.client.API().MessagesSendMedia(ctx, mediaReq)
 		if tgerr.Is(err, tg.ErrFileReferenceExpired) {
 			zerolog.Ctx(ctx).Debug().AnErr("send_error", err).Msg("Trying to refetch sticker pack")
-			mediaReq.Media, err = tc.transferMediaToTelegram(ctx, msg.Content, true, true, false)
+			mediaReq.Media, err = tc.transferMediaToTelegram(ctx, msg.Content, true, true, false, false)
 			if err != nil {
 				return nil, err
 			}
@@ -536,7 +576,7 @@ func (tc *TelegramClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2
 		case event.MsgImage, event.MsgFile, event.MsgAudio, event.MsgVideo:
 			var media tg.InputMediaClass
 			forceDocument, _ := msg.Event.Content.Raw["fi.mau.telegram.force_document"].(bool)
-			media, err = tc.transferMediaToTelegram(ctx, msg.Content, false, false, forceDocument)
+			media, err = tc.transferMediaToTelegram(ctx, msg.Content, false, false, forceDocument, matrixMediaHasSpoiler(msg.Event.Content.Raw))
 			if err != nil {
 				return nil, err
 			}
@@ -715,7 +755,7 @@ func (tc *TelegramClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Ma
 		} else {
 			log.Info().Msg("media URI changed, re-uploading media")
 			forceDocument, _ := msg.Event.Content.Raw["fi.mau.telegram.force_document"].(bool)
-			req.Media, err = tc.transferMediaToTelegram(ctx, msg.Content, false, false, forceDocument)
+			req.Media, err = tc.transferMediaToTelegram(ctx, msg.Content, false, false, forceDocument, matrixMediaHasSpoiler(msg.Event.Content.Raw))
 			if err != nil {
 				return err
 			}
