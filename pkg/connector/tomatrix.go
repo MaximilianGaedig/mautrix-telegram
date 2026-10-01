@@ -125,7 +125,11 @@ func (tc *TelegramClient) mediaToMatrix(
 	case tg.MessageMediaGameTypeID:
 		return convertGame(media), nil, nil
 	default:
-		// TODO: support these properly
+		if summary, ok := summariseMedia(tc.serviceTextEnv(ctx), media); ok {
+			part, hashInput := summary.part(media)
+			return part, nil, hashInput
+		}
+		// Whatever is left is a kind of media this bridge has never seen.
 		return &bridgev2.ConvertedMessagePart{
 			Type: event.EventMessage,
 			Content: &event.MessageEventContent{
