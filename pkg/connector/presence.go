@@ -63,6 +63,10 @@ func (tc *TelegramConnector) startPresence(ctx context.Context) {
 	log := tc.Bridge.Log.With().Str("component", "presence").Logger()
 	bg := log.WithContext(context.WithoutCancel(ctx))
 	go tc.presence.Run(bg)
+	if tc.Config.PresenceLastActive {
+		tc.seen = presence.NewSeenReporter(presence.GhostSeenSender(tc.Bridge))
+		go tc.seen.Run(bg)
+	}
 }
 
 func (tc *TelegramClient) handleUserStatus(userID int64, status tg.UserStatusClass) {
@@ -70,6 +74,11 @@ func (tc *TelegramClient) handleUserStatus(userID int64, status tg.UserStatusCla
 		return
 	}
 	now := time.Now()
+	// "Offline" is all Matrix presence can say of someone who has come and gone; when Telegram last
+	// saw them goes to the homeserver's activity log, where it keeps one.
+	if offline, isOffline := status.(*tg.UserStatusOffline); isOffline && offline.WasOnline > 0 {
+		tc.main.seen.Note(string(ids.MakeUserID(userID)), time.Unix(int64(offline.WasOnline), 0))
+	}
 	st, ok := mapTelegramStatus(status, now)
 	if !ok {
 		return

@@ -36,6 +36,7 @@ type TelegramConnector struct {
 	maxFileSize    int64
 
 	presence *presence.Manager
+	seen     *presence.SeenReporter
 }
 
 var _ bridgev2.NetworkConnector = (*TelegramConnector)(nil)
