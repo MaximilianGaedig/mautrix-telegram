@@ -88,6 +88,8 @@ type TelegramClient struct {
 	clientInitialized *exsync.Event
 	mu                sync.Mutex
 	activity          onlineWhileActive
+	// presenceSkips holds users that Telegram rejected when polling their status.
+	presenceSkips badUserSkips
 
 	appConfigLock sync.Mutex
 	appConfig     map[string]any

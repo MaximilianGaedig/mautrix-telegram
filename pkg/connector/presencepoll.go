@@ -214,7 +214,9 @@ func (tc *TelegramClient) groupMemberIDs(ctx context.Context, contacts map[int64
 // pollUserStatuses fetches statuses of users that aren't contacts and returns how many were
 // requested, and how long Telegram asked to wait before asking again, if it did.
 func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64, contacts map[int64]struct{}) (int, time.Duration) {
-	var inputs []tg.InputUserClass
+	now := time.Now()
+	hashes := make(map[int64]int64, len(userIDs))
+	var wanted []int64
 	for _, id := range userIDs {
 		if _, isContact := contacts[id]; isContact {
 			continue
@@ -223,18 +225,18 @@ func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64,
 		if err != nil || accessHash == 0 {
 			continue
 		}
-		inputs = append(inputs, &tg.InputUser{UserID: id, AccessHash: accessHash})
+		hashes[id] = accessHash
+		wanted = append(wanted, id)
 	}
-	for start := 0; start < len(inputs); start += presencePollUsersBatch {
-		end := min(start+presencePollUsersBatch, len(inputs))
-		users, err := tc.client.API().UsersGetUsers(ctx, inputs[start:end])
-		if err != nil {
-			wait, isFlood := tgerr.AsFloodWait(err)
-			if ctx.Err() == nil && !isFlood {
-				zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get user statuses")
+	for start := 0; start < len(wanted); start += presencePollUsersBatch {
+		end := min(start+presencePollUsersBatch, len(wanted))
+		users, wait, err := fetchUnskipped(wanted[start:end], &tc.presenceSkips, now, func(chunk []int64) ([]tg.UserClass, error) {
+			inputs := make([]tg.InputUserClass, len(chunk))
+			for i, id := range chunk {
+				inputs[i] = &tg.InputUser{UserID: id, AccessHash: hashes[id]}
 			}
-			return len(inputs), wait
-		}
+			return tc.client.API().UsersGetUsers(ctx, inputs)
+		})
 		for _, u := range users {
 			if user, ok := u.(*tg.User); ok {
 				if status, ok := user.GetStatus(); ok {
@@ -242,6 +244,15 @@ func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64,
 				}
 			}
 		}
+		if err != nil {
+			if ctx.Err() == nil {
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get user statuses")
+			}
+			return len(wanted), 0
+		}
+		if wait > 0 {
+			return len(wanted), wait
+		}
 	}
-	return len(inputs), 0
+	return len(wanted), 0
 }
