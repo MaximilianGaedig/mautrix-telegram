@@ -1151,25 +1151,34 @@ func (tc *TelegramClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.
 	if msg.Portal.Metadata.(*PortalMetadata).IsForumGeneral {
 		topicID = 1
 	}
-	var action tg.SendMessageActionClass
-	switch msg.Type {
-	case bridgev2.TypingTypeText:
-		action = &tg.SendMessageTypingAction{}
-	case bridgev2.TypingTypeRecordingMedia:
-		// TODO media types?
-		action = &tg.SendMessageRecordVideoAction{}
-	case bridgev2.TypingTypeUploadingMedia:
-		action = &tg.SendMessageUploadVideoAction{}
-	}
-	if !msg.IsTyping {
-		action = &tg.SendMessageCancelAction{}
-	}
 	_, err = tc.client.API().MessagesSetTyping(ctx, &tg.MessagesSetTypingRequest{
 		Peer:     inputPeer,
 		TopMsgID: topicID,
-		Action:   action,
+		Action:   telegramTypingAction(msg.Type, msg.IsTyping),
 	})
 	return err
+}
+
+// telegramTypingAction picks the Telegram chat action for a Matrix typing notification.
+//
+// bridgev2 only says that some media is being recorded or uploaded, not which kind, so those two
+// map to the least specific action Telegram has: a voice message is the only thing Matrix clients
+// record inside a chat, and "sending a file" is true of every upload, whereas the video actions
+// used before claimed something that usually wasn't happening.
+func telegramTypingAction(typingType bridgev2.TypingType, isTyping bool) tg.SendMessageActionClass {
+	if !isTyping {
+		return &tg.SendMessageCancelAction{}
+	}
+	switch typingType {
+	case bridgev2.TypingTypeRecordingMedia:
+		return &tg.SendMessageRecordAudioAction{}
+	case bridgev2.TypingTypeUploadingMedia:
+		return &tg.SendMessageUploadDocumentAction{}
+	default:
+		// Also covers typing types added to bridgev2 later: the request can't be sent without
+		// an action, and the user is doing something in the chat.
+		return &tg.SendMessageTypingAction{}
+	}
 }
 
 func (tc *TelegramClient) HandleMatrixDisappearingTimer(ctx context.Context, msg *bridgev2.MatrixDisappearingTimer) (bool, error) {

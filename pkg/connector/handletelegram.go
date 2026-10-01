@@ -1234,19 +1234,9 @@ func (tc *TelegramClient) handleTyping(portal networkid.PortalKey, sender bridge
 		return nil
 	}
 	tc.noteActivity(sender, time.Now())
-	timeout := time.Duration(6) * time.Second
-	var typingType bridgev2.TypingType
-	switch action.(type) {
-	case *tg.SendMessageTypingAction:
-		typingType = bridgev2.TypingTypeText
-	case *tg.SendMessageRecordAudioAction, *tg.SendMessageRecordRoundAction, *tg.SendMessageRecordVideoAction:
-		typingType = bridgev2.TypingTypeRecordingMedia
-	case *tg.SendMessageUploadAudioAction, *tg.SendMessageUploadDocumentAction, *tg.SendMessageUploadPhotoAction, *tg.SendMessageUploadRoundAction, *tg.SendMessageUploadVideoAction:
-		typingType = bridgev2.TypingTypeUploadingMedia
-	case *tg.SendMessageCancelAction:
-		timeout = 0
-	default:
-		timeout = 0
+	typingType, timeout, ok := typingFromTelegramAction(action)
+	if !ok {
+		return nil
 	}
 	res := tc.main.Bridge.QueueRemoteEvent(tc.userLogin, &simplevent.Typing{
 		EventMeta: simplevent.EventMeta{
@@ -1261,6 +1251,38 @@ func (tc *TelegramClient) handleTyping(portal networkid.PortalKey, sender bridge
 		Type:    typingType,
 	})
 	return resultToError(res)
+}
+
+// telegramTypingTimeout is how long a Telegram chat action stays visible without being repeated.
+const telegramTypingTimeout = 6 * time.Second
+
+// typingFromTelegramAction maps a Telegram chat action to what bridgev2 can express: typing text,
+// recording media or uploading media, with a zero timeout meaning the user stopped.
+//
+// ok is false for actions that say nothing about whether the user is writing a message. Those
+// must be ignored rather than treated as "stopped", because Telegram sends them while the user is
+// still typing.
+func typingFromTelegramAction(action tg.SendMessageActionClass) (typingType bridgev2.TypingType, timeout time.Duration, ok bool) {
+	switch action.(type) {
+	case *tg.SendMessageTypingAction,
+		// Picking a sticker, a location or a contact is composing a message too, and Matrix has
+		// nothing more specific to show for it.
+		*tg.SendMessageChooseStickerAction, *tg.SendMessageGeoLocationAction, *tg.SendMessageChooseContactAction,
+		// Bots send these while they stream the text of a reply.
+		*tg.SendMessageTextDraftAction, *tg.SendMessageRichMessageDraftAction:
+		return bridgev2.TypingTypeText, telegramTypingTimeout, true
+	case *tg.SendMessageRecordAudioAction, *tg.SendMessageRecordRoundAction, *tg.SendMessageRecordVideoAction:
+		return bridgev2.TypingTypeRecordingMedia, telegramTypingTimeout, true
+	case *tg.SendMessageUploadAudioAction, *tg.SendMessageUploadDocumentAction, *tg.SendMessageUploadPhotoAction, *tg.SendMessageUploadRoundAction, *tg.SendMessageUploadVideoAction:
+		return bridgev2.TypingTypeUploadingMedia, telegramTypingTimeout, true
+	case *tg.SendMessageEmojiInteraction, *tg.SendMessageEmojiInteractionSeen, *tg.SpeakingInGroupCallAction:
+		// Tapping an animated emoji or talking in a call happens alongside typing.
+		return bridgev2.TypingTypeText, 0, false
+	default:
+		// An explicit cancel, or an activity that replaces typing (playing a game, importing
+		// history).
+		return bridgev2.TypingTypeText, 0, true
+	}
 }
 
 func (tc *TelegramClient) updateReadReceipt(ctx context.Context, e tg.Entities, update *tg.UpdateReadHistoryOutbox) error {
