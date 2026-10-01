@@ -34,12 +34,17 @@ import (
 
 func (tc *TelegramClient) computeReactionsList(ctx context.Context, peer tg.PeerClass, msgID int, msgReactions tg.MessageReactions) (reactions []tg.MessagePeerReaction, isFull bool, customEmojis map[networkid.EmojiID]emojis.EmojiInfo, err error) {
 	log := zerolog.Ctx(ctx).With().Str("fn", "computeReactionsList").Logger()
+	// Only reactions that can be bridged are counted and listed. Counting the rest would make the
+	// list look incomplete forever, which costs a request per sync and stops stale reactions from
+	// being removed on Matrix.
 	var totalCount int
 	for _, r := range msgReactions.Results {
-		totalCount += r.Count
+		if isBridgeableReaction(r.Reaction) {
+			totalCount += r.Count
+		}
 	}
 
-	reactionsList := msgReactions.RecentReactions
+	reactionsList := bridgeableReactions(msgReactions.RecentReactions)
 	if totalCount > 0 && len(reactionsList) == 0 && !msgReactions.CanSeeList {
 		// We don't know who reacted in a channel, so we can't bridge it properly either
 		log.Trace().Msg("Can't see reaction list in channel")
@@ -76,17 +81,44 @@ func (tc *TelegramClient) computeReactionsList(ctx context.Context, peer tg.Peer
 		}
 	}
 
+	// The list may have been replaced above, so filter it again.
+	reactionsList = bridgeableReactions(reactionsList)
+
 	var customEmojiIDs []int64
 	for _, reaction := range reactionsList {
 		if e, ok := reaction.Reaction.(*tg.ReactionCustomEmoji); ok {
 			customEmojiIDs = append(customEmojiIDs, e.DocumentID)
-		} else if reaction.Reaction.TypeID() != tg.ReactionEmojiTypeID {
-			return nil, false, nil, fmt.Errorf("unsupported reaction type %T", reaction.Reaction)
 		}
 	}
 
 	customEmojis, err = tc.transferEmojisToMatrix(ctx, customEmojiIDs)
 	return reactionsList, len(reactionsList) == totalCount, customEmojis, err
+}
+
+// isBridgeableReaction reports whether a Telegram reaction has a Matrix equivalent. Paid (star)
+// reactions do not: they are not an emoji, a user can add one on top of their normal reactions,
+// and their count is a number of stars rather than of people. Bridging one as a stand-in emoji
+// would collide with a real reaction using that emoji and would count against the sender's
+// reaction limit, pushing out one of their real reactions.
+func isBridgeableReaction(reaction tg.ReactionClass) bool {
+	switch reaction.(type) {
+	case *tg.ReactionEmoji, *tg.ReactionCustomEmoji:
+		return true
+	default:
+		return false
+	}
+}
+
+// bridgeableReactions drops the reactions that can't be bridged, so that one of them on a message
+// doesn't stop the other reactions on that message from syncing.
+func bridgeableReactions(reactions []tg.MessagePeerReaction) []tg.MessagePeerReaction {
+	bridgeable := make([]tg.MessagePeerReaction, 0, len(reactions))
+	for _, reaction := range reactions {
+		if isBridgeableReaction(reaction.Reaction) {
+			bridgeable = append(bridgeable, reaction)
+		}
+	}
+	return bridgeable
 }
 
 func computeEmojiAndID(reaction tg.ReactionClass, customEmojis map[networkid.EmojiID]emojis.EmojiInfo) (emojiID networkid.EmojiID, emoji string, err error) {
