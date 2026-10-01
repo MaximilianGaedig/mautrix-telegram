@@ -109,6 +109,7 @@ type TelegramConfig struct {
 	PresenceMaxPerSecond                 float64             `yaml:"presence_max_per_second"`
 	PresenceOnlineWhileActive            bool                `yaml:"presence_online_while_active"`
 	PresenceActiveTimeoutSeconds         int                 `yaml:"presence_active_timeout_seconds"`
+	PresenceGroupMembers                 bool                `yaml:"presence_group_members"`
 	StickerPackSync                      bool                `yaml:"sticker_pack_sync"`
 	ArchiveTag                           event.RoomTag       `yaml:"archive_tag"`
 	displaynameTemplate                  *template.Template  `yaml:"-"`
@@ -211,6 +212,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Int|up.Float, "presence_max_per_second")
 	helper.Copy(up.Bool, "presence_online_while_active")
 	helper.Copy(up.Int, "presence_active_timeout_seconds")
+	helper.Copy(up.Bool, "presence_group_members")
 	helper.Copy(up.Bool, "sticker_pack_sync")
 	helper.Copy(up.Str|up.Null, "archive_tag")
 }

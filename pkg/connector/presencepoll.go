@@ -18,9 +18,11 @@ package connector
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-telegram/pkg/connector/ids"
 	"go.mau.fi/mautrix-telegram/pkg/gotd/tg"
@@ -34,7 +36,35 @@ const (
 	presencePollUsersBatch = 100
 	// Re-read the list of DM portals from the database every this many polls.
 	presencePollDMRefresh = 10
+	// Re-read who is in the groups every this many polls (ten minutes).
+	presencePollMembersRefresh = 40
 )
+
+// memberRotation hands out group members a batch at a time, round and round: there are too many to
+// ask about at once, and nobody needs a stranger's status to the second.
+type memberRotation struct {
+	ids  []int64
+	next int
+}
+
+// set replaces the members, keeping the place in the round.
+func (r *memberRotation) set(ids []int64) {
+	r.ids = ids
+	if r.next >= len(ids) {
+		r.next = 0
+	}
+}
+
+// batch returns the next up to n members, wrapping around once at most.
+func (r *memberRotation) batch(n int) []int64 {
+	n = min(n, len(r.ids))
+	out := make([]int64, 0, n)
+	for range n {
+		out = append(out, r.ids[r.next])
+		r.next = (r.next + 1) % len(r.ids)
+	}
+	return out
+}
 
 // pollPresence periodically asks Telegram for statuses instead of relying only
 // on updateUserStatus pushes. Telegram mostly pushes status updates to sessions
@@ -48,13 +78,32 @@ func (tc *TelegramClient) pollPresence(ctx context.Context) {
 	log := zerolog.Ctx(ctx).With().Str("action", "poll presence").Logger()
 	ctx = log.WithContext(ctx)
 	var dmUsers []int64
+	var members memberRotation
 	for i := 0; ; i++ {
 		contacts, wait := tc.pollContactStatuses(ctx)
 		if i%presencePollDMRefresh == 0 {
 			dmUsers = tc.dmPartnerIDs(ctx)
 		}
-		others := tc.pollUserStatuses(ctx, dmUsers, contacts)
-		log.Debug().Int("contacts", len(contacts)).Int("dm_non_contacts", others).Msg("Polled Telegram statuses")
+		others, otherWait := tc.pollUserStatuses(ctx, dmUsers, contacts)
+		wait = max(wait, otherWait)
+		groupMembers := 0
+		if tc.main.Config.PresenceGroupMembers {
+			if i%presencePollMembersRefresh == 0 {
+				members.set(tc.groupMemberIDs(ctx, contacts, dmUsers))
+			}
+			// One batch a poll: the whole round takes a few minutes, at one extra request each time.
+			if wait == 0 {
+				var memberWait time.Duration
+				groupMembers, memberWait = tc.pollUserStatuses(ctx, members.batch(presencePollUsersBatch), contacts)
+				wait = max(wait, memberWait)
+			}
+		}
+		log.Debug().
+			Int("contacts", len(contacts)).
+			Int("dm_non_contacts", others).
+			Int("group_members", groupMembers).
+			Int("group_members_total", len(members.ids)).
+			Msg("Polled Telegram statuses")
 		// Telegram answers a poll that comes too often with a flood wait. Asking again before it has
 		// passed only earns another one and spends request budget the history import needs, so the next
 		// poll waits it out.
@@ -110,9 +159,61 @@ func (tc *TelegramClient) dmPartnerIDs(ctx context.Context) []int64 {
 	return out
 }
 
-// pollUserStatuses fetches statuses of DM partners that aren't contacts and
-// returns how many were requested.
-func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64, contacts map[int64]struct{}) int {
+// groupMemberIDs lists everyone in this login's group chats, as the rooms' members show them, but
+// for those whose status is polled already: contacts and DM partners.
+func (tc *TelegramClient) groupMemberIDs(ctx context.Context, contacts map[int64]struct{}, dmUsers []int64) []int64 {
+	portals, err := tc.main.Bridge.DB.Portal.GetAllWithMXID(ctx)
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to list portals for group member presence")
+		return nil
+	}
+	skip := make(map[int64]struct{}, len(contacts)+len(dmUsers)+1)
+	for id := range contacts {
+		skip[id] = struct{}{}
+	}
+	for _, id := range dmUsers {
+		skip[id] = struct{}{}
+	}
+	skip[tc.telegramUserID] = struct{}{}
+	var out []int64
+	for _, p := range portals {
+		if p.Receiver != "" && p.Receiver != tc.userLogin.ID {
+			continue
+		}
+		peerType, _, _, err := ids.ParsePortalID(p.ID)
+		if err != nil || peerType == ids.PeerTypeUser {
+			continue
+		}
+		joined, err := tc.main.Bridge.Matrix.GetMembers(ctx, p.MXID)
+		if err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("room_id", p.MXID).Msg("Failed to get members for presence")
+			continue
+		}
+		for userID, member := range joined {
+			if member == nil || member.Membership != event.MembershipJoin {
+				continue
+			}
+			ghost, ok := tc.main.Bridge.Matrix.ParseGhostMXID(userID)
+			if !ok {
+				continue
+			}
+			peerType, id, err := ids.ParseUserID(ghost)
+			if err != nil || peerType != ids.PeerTypeUser {
+				continue
+			}
+			if _, seen := skip[id]; !seen {
+				skip[id] = struct{}{}
+				out = append(out, id)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// pollUserStatuses fetches statuses of users that aren't contacts and returns how many were
+// requested, and how long Telegram asked to wait before asking again, if it did.
+func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64, contacts map[int64]struct{}) (int, time.Duration) {
 	var inputs []tg.InputUserClass
 	for _, id := range userIDs {
 		if _, isContact := contacts[id]; isContact {
@@ -128,10 +229,11 @@ func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64,
 		end := min(start+presencePollUsersBatch, len(inputs))
 		users, err := tc.client.API().UsersGetUsers(ctx, inputs[start:end])
 		if err != nil {
-			if ctx.Err() == nil {
-				zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get DM partner statuses")
+			wait, isFlood := tgerr.AsFloodWait(err)
+			if ctx.Err() == nil && !isFlood {
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to get user statuses")
 			}
-			return len(inputs)
+			return len(inputs), wait
 		}
 		for _, u := range users {
 			if user, ok := u.(*tg.User); ok {
@@ -141,5 +243,5 @@ func (tc *TelegramClient) pollUserStatuses(ctx context.Context, userIDs []int64,
 			}
 		}
 	}
-	return len(inputs)
+	return len(inputs), 0
 }
