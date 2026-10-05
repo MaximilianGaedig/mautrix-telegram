@@ -53,6 +53,9 @@ func (tc *TelegramConnector) Start(ctx context.Context) error {
 		return err
 	}
 	tc.startPresence(ctx)
+	if err := tc.setUpWallpaperAPI(); err != nil {
+		tc.Bridge.Log.Warn().Err(err).Msg("Chat wallpaper API not set up")
+	}
 	return nil
 }
 
