@@ -146,7 +146,9 @@ func (tc *TelegramConnector) Download(ctx context.Context, mediaID networkid.Med
 	transferer := media.NewTransferer(client.client.API())
 	var readyTransferer *media.ReadyTransferer
 
-	if info.PeerType == ids.FakePeerTypeSticker {
+	if info.PeerType == ids.FakePeerTypeWallpaper {
+		return client.downloadWallpaper(ctx, transferer, info)
+	} else if info.PeerType == ids.FakePeerTypeSticker {
 		pack, err := client.GetCachedStickerPack(ctx, "", &tg.InputStickerSetID{
 			ID:         info.PeerID,
 			AccessHash: info.MessageID, // sticker pack direct media abuses the user ID field for access hashes
