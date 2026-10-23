@@ -121,8 +121,8 @@ type TelegramClient struct {
 	// pollMessages maps poll IDs to their messages, for poll updates that don't say which message they're for.
 	pollMessages *exsync.RingBuffer[int64, networkid.MessageID]
 	// pollSignatures holds the last vote counts that were synced for each poll message.
-	pollSignatures sync.Map
-	chatMigrateSender  *exsync.Map[int64, bridgev2.EventSender]
+	pollSignatures    sync.Map
+	chatMigrateSender *exsync.Map[int64, bridgev2.EventSender]
 
 	telegramFmtParams *telegramfmt.FormatParams
 	matrixParser      *matrixfmt.HTMLParser
